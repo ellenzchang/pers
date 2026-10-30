@@ -47,6 +47,7 @@ final class Session: ObservableObject, Identifiable {
         messages = snapshot.messages
         outfit = snapshot.outfit ?? outfit
         refreshGit()
+        checkTranscript()
     }
 
     var snapshot: SessionSnapshot {
@@ -84,6 +85,23 @@ final class Session: ObservableObject, Identifiable {
         outfit = Int.random(in: 0..<1000)
     }
 
+    /// The CLI deletes transcripts after `cleanupPeriodDays`, which leaves a long-idle tab resuming a session that's gone.
+    private func checkTranscript() {
+        guard let sessionId, !Self.transcriptExists(sessionId) else { return }
+        messages.append(ChatMessage(speaker: .system, text: "Claude has left the chat due to inactivity"))
+        startNewSession()
+    }
+
+    /// Project folder names are an encoding of the working directory, so look in all of them. An unreadable
+    /// projects folder counts as present rather than ending every tab's session.
+    private static func transcriptExists(_ sessionId: String) -> Bool {
+        let projects = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/projects")
+        guard let folders = try? FileManager.default.contentsOfDirectory(at: projects, includingPropertiesForKeys: nil) else {
+            return true
+        }
+        return folders.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent("\(sessionId).jsonl").path) }
+    }
+
     func stop() {
         process?.terminate()
     }
@@ -95,6 +113,7 @@ final class Session: ObservableObject, Identifiable {
 
     func send(_ text: String) {
         guard !isBusy, !text.trimmed.isEmpty else { return }
+        checkTranscript()
         messages.append(ChatMessage(speaker: .user, text: text))
         isBusy = true
         showingRecap = false
