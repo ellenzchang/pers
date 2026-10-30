@@ -1,0 +1,159 @@
+import SwiftUI
+
+enum Theme {
+    static let deep = Color(hex: 0x020718)
+    static let ocean = Color(hex: 0x0A2A6B)
+    static let panelTop = Color(hex: 0x0D307A)
+    static let panelBottom = Color(hex: 0x04103A)
+    static let ice = Color(hex: 0xEAF8FF)
+    static let navy = Color(hex: 0x061A4A)
+    static let codeBackground = Color(hex: 0x020A1E)
+    static let text = Color(hex: 0xEAF8FF)
+    static let dim = Color(hex: 0x6E8FC4)
+    static let cyan = Color(hex: 0x37D7FF)
+    static let aqua = Color(hex: 0x7DF5C8)
+    static let gold = Color(hex: 0xFFD866)
+    static let pink = Color(hex: 0xFF7AB8)
+    static let red = Color(hex: 0xFF4D6D)
+
+    static func ui(_ size: CGFloat = 12, weight: Font.Weight = .heavy) -> Font {
+        .system(size: size, weight: weight).width(.condensed).italic()
+    }
+    static func display(_ size: CGFloat) -> Font {
+        .system(size: size, weight: .black).width(.compressed).italic()
+    }
+    static let body = Font.system(size: 14.5, weight: .medium)
+    static let code = Font.system(size: 12.5, design: .monospaced)
+}
+
+extension Color {
+    init(hex: UInt32) {
+        self.init(red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
+    }
+}
+
+struct Slant: Shape {
+    var amount: CGFloat = 8
+
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.minX + amount, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX - amount, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.closeSubpath()
+        }
+    }
+}
+
+/// Rectangle with the top-left and bottom-right corners sliced off.
+struct CutPanel: Shape {
+    var cut: CGFloat = 16
+
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: rect.minX + cut, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - cut))
+            path.addLine(to: CGPoint(x: rect.maxX - cut, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+            path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + cut))
+            path.closeSubpath()
+        }
+    }
+}
+
+struct Panel: ViewModifier {
+    var light = false
+    var accent: Color = Theme.cyan
+    var padding: CGFloat = 14
+
+    func body(content: Content) -> some View {
+        content
+            .padding(padding)
+            .background {
+                ZStack {
+                    CutPanel().fill(accent.opacity(0.35)).offset(x: 6, y: 6)
+                    if light {
+                        CutPanel().fill(Theme.ice)
+                    } else {
+                        CutPanel().fill(LinearGradient(colors: [Theme.panelTop, Theme.panelBottom], startPoint: .top, endPoint: .bottom))
+                            .opacity(0.94)
+                    }
+                    CutPanel().stroke(accent.opacity(light ? 0 : 0.7), lineWidth: 1.5)
+                }
+            }
+    }
+}
+
+extension View {
+    func panel(light: Bool = false, accent: Color = Theme.cyan, padding: CGFloat = 14) -> some View {
+        modifier(Panel(light: light, accent: accent, padding: padding))
+    }
+}
+
+struct NamePlate: View {
+    var name: String
+    var color: Color = Theme.ice
+
+    var body: some View {
+        Text(name)
+            .font(Theme.ui(14, weight: .black))
+            .foregroundStyle(Theme.navy)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 3)
+            .background {
+                ZStack {
+                    Slant(amount: 10).fill(Theme.cyan).offset(x: 4, y: 3)
+                    Slant(amount: 10).fill(color)
+                }
+            }
+    }
+}
+
+struct Chip<Label: View>: View {
+    var active = false
+    var color: Color = Theme.cyan
+    @ViewBuilder var label: Label
+
+    var body: some View {
+        label
+            .font(Theme.ui(13))
+            .foregroundStyle(active ? Theme.navy : color)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 4)
+            .background(Slant().fill(active ? Theme.ice : Theme.navy.opacity(0.7)))
+            .overlay(Slant().stroke(color.opacity(active ? 0 : 0.55), lineWidth: 1.5))
+            .contentShape(Slant())
+    }
+}
+
+struct MoonlitBackground: View {
+    var body: some View {
+        Canvas { context, size in
+            let moon = CGPoint(x: size.width * 0.82, y: size.height * 0.28)
+            for (radius, alpha) in [(260.0, 0.04), (170.0, 0.05), (110.0, 0.07)] {
+                context.fill(Path(ellipseIn: CGRect(x: moon.x - radius, y: moon.y - radius, width: radius * 2, height: radius * 2)),
+                             with: .color(Theme.cyan.opacity(alpha)))
+            }
+            for i in 0..<6 {
+                let x = size.width * (0.1 + Double(i) * 0.17)
+                var shaft = Path()
+                shaft.move(to: CGPoint(x: x, y: 0))
+                shaft.addLine(to: CGPoint(x: x + 60 + Double(i % 3) * 30, y: 0))
+                shaft.addLine(to: CGPoint(x: x - 220 + Double(i % 3) * 30, y: size.height))
+                shaft.addLine(to: CGPoint(x: x - 280, y: size.height))
+                shaft.closeSubpath()
+                context.fill(shaft, with: .color(Theme.ice.opacity(0.018)))
+            }
+            for y in stride(from: size.height * 0.55, to: size.height, by: 7) {
+                context.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: .color(Theme.cyan.opacity(0.025)))
+            }
+        }
+        .background(LinearGradient(colors: [Theme.ocean, Theme.deep], startPoint: .top, endPoint: .bottom))
+    }
+}
+
+/// `@State` is a macro in recent SDKs; Command Line Tools ship without the SwiftUI macro plugin,
+/// so naming the property-wrapper type through an alias keeps the app buildable without Xcode.
+typealias ViewState = SwiftUI.State
