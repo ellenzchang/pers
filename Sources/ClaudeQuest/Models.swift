@@ -48,6 +48,7 @@ struct SessionSnapshot: Codable {
     var cost: Double
     var messages: [ChatMessage]
     var outfit: Int?
+    var draft: String?
 }
 
 struct PermissionPrompt {

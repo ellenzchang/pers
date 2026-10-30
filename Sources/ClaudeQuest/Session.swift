@@ -11,6 +11,7 @@ final class Session: ObservableObject, Identifiable {
     @Published var effort: Effort?
     @Published var cost: Double
     @Published var messages: [ChatMessage]
+    @Published var draft = ""
     @Published var liveModel: String?
     @Published private(set) var outfit = Int.random(in: 0..<1000)
     @Published var git: GitInfo?
@@ -45,6 +46,7 @@ final class Session: ObservableObject, Identifiable {
         effort = snapshot.effort
         cost = snapshot.cost
         messages = snapshot.messages
+        draft = snapshot.draft ?? ""
         outfit = snapshot.outfit ?? outfit
         refreshGit()
         checkTranscript()
@@ -52,7 +54,7 @@ final class Session: ObservableObject, Identifiable {
 
     var snapshot: SessionSnapshot {
         SessionSnapshot(id: id, directory: directory, sessionId: sessionId, model: model, mode: mode,
-                        effort: effort, cost: cost, messages: messages, outfit: outfit)
+                        effort: effort, cost: cost, messages: messages, outfit: outfit, draft: draft)
     }
 
     var title: String { (directory as NSString).lastPathComponent }

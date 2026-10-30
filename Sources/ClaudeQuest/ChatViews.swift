@@ -191,7 +191,6 @@ struct MessageRow: View {
 
 struct DialogueBox: View {
     @ObservedObject var session: Session
-    @ViewState private var draft = ""
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -211,13 +210,13 @@ struct DialogueBox: View {
                     .padding(.horizontal, 18)
                     .zIndex(1)
                 ZStack(alignment: .topLeading) {
-                    if draft.isEmpty {
+                    if session.draft.isEmpty {
                         Text("Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell)")
                             .font(Theme.body)
                             .foregroundStyle(Theme.dim)
                             .padding(.leading, 5)
                     }
-                    TextEditor(text: $draft)
+                    TextEditor(text: $session.draft)
                         .font(isShell ? .system(size: 14, design: .monospaced) : Theme.body)
                         .foregroundStyle(isShell ? Theme.gold : Theme.text)
                         .scrollContentBackground(.hidden)
@@ -236,7 +235,7 @@ struct DialogueBox: View {
                 .animation(.easeOut(duration: 0.15), value: isShell)
             }
 
-            CommandMenu(session: session, canSend: !draft.trimmed.isEmpty, send: send)
+            CommandMenu(session: session, canSend: !session.draft.trimmed.isEmpty, send: send)
         }
         .padding(.horizontal, 18)
         .padding(.bottom, 16)
@@ -258,7 +257,7 @@ struct DialogueBox: View {
         .help("Recap this session so far")
     }
 
-    private var isShell: Bool { draft.hasPrefix("!") }
+    private var isShell: Bool { session.draft.hasPrefix("!") }
     private var isAnswering: Bool { session.prompt?.question != nil }
 
     private var mood: Mood {
@@ -268,15 +267,15 @@ struct DialogueBox: View {
     }
 
     private func send() {
-        guard !draft.trimmed.isEmpty else { return }
+        guard !session.draft.trimmed.isEmpty else { return }
         if isAnswering {
-            session.reply(draft.trimmed)
+            session.reply(session.draft.trimmed)
         } else if !session.isBusy {
-            session.send(draft)
+            session.send(session.draft)
         } else {
             return
         }
-        draft = ""
+        session.draft = ""
     }
 }
 
