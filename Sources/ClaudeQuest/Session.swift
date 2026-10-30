@@ -97,9 +97,9 @@ final class Session: ObservableObject, Identifiable {
         if let sessionId { args += ["--resume", sessionId] }
 
         let process = Process()
-        // A login shell gives Finder-launched apps the user's PATH and env, so `claude` resolves like in a terminal.
+        // The login shell supplies .zprofile's environment; the binary path is resolved separately (see claudePath).
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", "exec claude \"$@\"", "claude"] + args
+        process.arguments = ["-lc", "exec \"$0\" \"$@\"", Self.claudePath] + args
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         let out = Pipe(), err = Pipe()
         process.standardOutput = out
@@ -132,6 +132,26 @@ final class Session: ObservableObject, Identifiable {
             }
         }
     }
+
+    /// Finder-launched apps get a minimal PATH, and login shells skip .zshrc where installers usually add
+    /// `~/.local/bin`, so check the common install locations before asking an interactive shell.
+    private static let claudePath: String = {
+        let home = NSHomeDirectory()
+        let known = ["\(home)/.local/bin/claude", "\(home)/.claude/local/claude", "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+        if let path = known.first(where: FileManager.default.isExecutableFile(atPath:)) { return path }
+
+        let shell = Process()
+        shell.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        shell.arguments = ["-lic", "command -v claude"]
+        let out = Pipe()
+        shell.standardOutput = out
+        shell.standardError = FileHandle.nullDevice
+        shell.standardInput = FileHandle.nullDevice
+        try? shell.run()
+        let output = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        shell.waitUntilExit()
+        return output.split(separator: "\n").last.map { String($0).trimmed }.flatMap { $0.hasPrefix("/") ? $0 : nil } ?? "claude"
+    }()
 
     private func finish(error: String?) {
         if let error { messages.append(ChatMessage(speaker: .system, text: error)) }
