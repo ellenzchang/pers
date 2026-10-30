@@ -18,6 +18,9 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var typingId: UUID?
     @Published private(set) var revealed = 0
     @Published private(set) var prompt: PermissionPrompt?
+    @Published private(set) var recap: String?
+    @Published private(set) var isRecapping = false
+    @Published private(set) var showingRecap = false
 
     private var process: Process?
     private var input: FileHandle?
@@ -76,6 +79,8 @@ final class Session: ObservableObject, Identifiable {
     /// Each Claude session gets one outfit for its whole lifetime.
     private func startNewSession() {
         sessionId = nil
+        recap = nil
+        showingRecap = false
         outfit = Int.random(in: 0..<1000)
     }
 
@@ -92,6 +97,7 @@ final class Session: ObservableObject, Identifiable {
         guard !isBusy, !text.trimmed.isEmpty else { return }
         messages.append(ChatMessage(speaker: .user, text: text))
         isBusy = true
+        showingRecap = false
         if text.hasPrefix("!") { return runShell(String(text.dropFirst())) }
 
         var args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
@@ -99,11 +105,7 @@ final class Session: ObservableObject, Identifiable {
         if let effort { args += ["--effort", effort.rawValue] }
         if let sessionId { args += ["--resume", sessionId] }
 
-        let process = Process()
-        // The login shell supplies .zprofile's environment; the binary path is resolved separately (see claudePath).
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", "exec \"$0\" \"$@\"", Self.claudePath] + args
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
+        let process = claudeProcess(args)
         let out = Pipe(), err = Pipe(), stdin = Pipe()
         process.standardOutput = out
         process.standardError = err
@@ -136,6 +138,79 @@ final class Session: ObservableObject, Identifiable {
                 finish(error: nil)
             }
         }
+    }
+
+    /// `claude -p` never emits the terminal's idle recap, so Haiku writes one from the chat log
+    /// without adding the request to the real conversation.
+    func requestRecap() {
+        guard !messages.isEmpty, !isRecapping else { return }
+        isRecapping = true
+        showingRecap = true
+        recap = nil
+        let process = claudeProcess(["-p", "--no-session-persistence", "--tools", "", "--output-format", "json",
+                                     "--model", ClaudeModel.haiku.rawValue])
+        let out = Pipe(), err = Pipe(), stdin = Pipe()
+        process.standardOutput = out
+        process.standardError = err
+        process.standardInput = stdin
+        let input = Data((Self.recapPrompt + recapTranscript).utf8)
+
+        Task {
+            do {
+                try process.run()
+            } catch {
+                recap = error.localizedDescription
+                isRecapping = false
+                return
+            }
+            let data = await Task.detached {
+                try? stdin.fileHandleForWriting.write(contentsOf: input)
+                try? stdin.fileHandleForWriting.close()
+                return out.fileHandleForReading.readDataToEndOfFile()
+            }.value
+            process.waitUntilExit()
+            let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            cost += result?["total_cost_usd"] as? Double ?? 0
+            let stderr = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmed
+            recap = (result?["result"] as? String)?.trimmed ?? (stderr.isEmpty ? "Couldn't recall this session." : stderr)
+            isRecapping = false
+        }
+    }
+
+    func dismissRecap() {
+        showingRecap = false
+    }
+
+    /// Roughly 100k tokens, leaving Haiku's context room for the prompt and reply.
+    private static let recapBudget = 400_000
+
+    /// Walks back from the newest message until the budget runs out, so long sessions keep their latest turns.
+    private var recapTranscript: String {
+        var lines: [String] = []
+        var remaining = Self.recapBudget
+        for message in messages.reversed() where remaining > 0 {
+            let line = String("\(message.speaker.rawValue): \(message.text)".suffix(remaining))
+            lines.append(line)
+            remaining -= line.count + 2
+        }
+        return lines.reversed().joined(separator: "\n\n")
+    }
+
+    private static let recapPrompt = """
+        Below is the latest part of a session between the user and you, Claude. Recap it for the user coming back \
+        to it, in at most three plain sentences: what they asked, what you found or did, and the next step. \
+        Address them as "you" and yourself as "I". Reply with only the recap.
+
+
+        """
+
+    private func claudeProcess(_ args: [String]) -> Process {
+        let process = Process()
+        // The login shell supplies .zprofile's environment; the binary path is resolved separately (see claudePath).
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", "exec \"$0\" \"$@\"", Self.claudePath] + args
+        process.currentDirectoryURL = URL(fileURLWithPath: directory)
+        return process
     }
 
     /// Mirrors the CLI's `!` mode, which `claude -p` doesn't support. The trailing marker reports the

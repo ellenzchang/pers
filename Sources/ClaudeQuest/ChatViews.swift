@@ -32,10 +32,52 @@ struct MessageLog: View {
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.6), value: session.prompt?.step)
+        .overlay {
+            if session.showingRecap {
+                RecapOverlay(session: session)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: session.showingRecap)
     }
 
     private func scrollDown(_ proxy: ScrollViewProxy, animated: Bool = true) {
         withAnimation(animated ? .easeOut(duration: 0.2) : nil) { proxy.scrollTo("bottom", anchor: .bottom) }
+    }
+}
+
+private struct RecapOverlay: View {
+    @ObservedObject var session: Session
+
+    var body: some View {
+        ZStack {
+            Theme.deep.opacity(0.82)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: session.dismissRecap)
+            VStack(alignment: .leading, spacing: -8) {
+                NamePlate(name: "RECAP", color: Theme.cyan)
+                    .padding(.horizontal, 18)
+                    .zIndex(1)
+                Group {
+                    if let recap = session.recap {
+                        Text(recap)
+                            .font(Theme.body)
+                            .foregroundStyle(Theme.text)
+                            .textSelection(.enabled)
+                    } else {
+                        Text("Recalling…")
+                            .font(Theme.body)
+                            .foregroundStyle(Theme.dim)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+                .panel(padding: 18)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: 620)
+            .padding(24)
+        }
     }
 }
 
@@ -190,6 +232,7 @@ struct DialogueBox: View {
                 .frame(height: 112)
                 .background(Theme.codeBackground.opacity(isShell ? 0.9 : 0))
                 .panel(accent: isShell ? Theme.gold : Theme.cyan, padding: 16, morphing: true)
+                .overlay(alignment: .bottomTrailing) { logButton.padding(10) }
                 .animation(.easeOut(duration: 0.15), value: isShell)
             }
 
@@ -201,6 +244,18 @@ struct DialogueBox: View {
         .background(LinearGradient(colors: [.clear, Theme.deep.opacity(0.7)], startPoint: .top, endPoint: .bottom))
         .onAppear { focused = true }
         .onTapGesture { if session.isTalking { session.skipTyping() } }
+    }
+
+    private var logButton: some View {
+        Button {
+            session.showingRecap ? session.dismissRecap() : session.requestRecap()
+        } label: {
+            Chip(active: session.showingRecap) { Text("LOG") }
+        }
+        .buttonStyle(.plain)
+        .disabled(session.messages.isEmpty || session.isBusy)
+        .opacity(session.messages.isEmpty || session.isBusy ? 0.4 : 1)
+        .help("Recap this session so far")
     }
 
     private var isShell: Bool { draft.hasPrefix("!") }
