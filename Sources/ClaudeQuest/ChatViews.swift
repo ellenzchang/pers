@@ -350,9 +350,11 @@ struct DialogueBox: View {
 }
 
 private struct CommandMenu: View {
+    @EnvironmentObject var store: AppStore
     @ObservedObject var session: Session
     var canSend: Bool
     var send: () -> Void
+    @ViewState private var loading = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -367,9 +369,104 @@ private struct CommandMenu: View {
             }
             MenuItem(title: "NEW GAME", index: 2, action: session.reset)
                 .help("Start a fresh conversation in this tab")
+            if !session.isBusy {
+                MenuItem(title: "LOAD DATA", index: 3) { loading = true }
+                    .help("Continue an earlier Claude session in this tab")
+            }
         }
         .frame(width: 150, alignment: .leading)
         .frame(minHeight: 128, alignment: .center)
+        .sheet(isPresented: $loading) {
+            LoadData(session: session)
+                .environmentObject(store)
+        }
+    }
+}
+
+private struct LoadData: View {
+    @EnvironmentObject var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    var session: Session
+    @ViewState private var saves: [SavedSession]?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: -8) {
+            NamePlate(name: "LOAD DATA", color: Theme.cyan)
+                .padding(.horizontal, 18)
+                .zIndex(1)
+            Group {
+                if let saves, saves.isEmpty {
+                    Text("No saved sessions found.")
+                        .foregroundStyle(Theme.dim)
+                } else if let saves {
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 4) {
+                            ForEach(saves) { save in
+                                Button { load(save) } label: { SaveRow(save: save, isCurrent: save.id == session.sessionId) }
+                                    .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                } else {
+                    ProgressView("Reading save data…")
+                }
+            }
+            .font(Theme.body)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.top, 6)
+            .panel(padding: 18)
+        }
+        .padding(20)
+        .frame(width: 640, height: 520)
+        .background(Theme.deep)
+        .overlay(alignment: .topTrailing) {
+            Button { dismiss() } label: { Chip { Text("CLOSE") } }
+                .buttonStyle(.plain)
+                .keyboardShortcut(.cancelAction)
+                .padding(24)
+        }
+        .task { saves = await Task.detached { SaveData.list() }.value }
+    }
+
+    /// A session already open in another tab is switched to rather than duplicated.
+    private func load(_ save: SavedSession) {
+        SaveData.markOpened(save.id)
+        if let open = store.sessions.first(where: { $0.sessionId == save.id }) {
+            store.selectedId = open.id
+        } else {
+            session.load(save)
+        }
+        dismiss()
+    }
+}
+
+private struct SaveRow: View {
+    var save: SavedSession
+    var isCurrent: Bool
+    @ViewState private var isHovered = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(save.title)
+                .font(Theme.ui(15, weight: .bold))
+                .foregroundStyle(isHovered ? Theme.navy : Theme.ice)
+                .lineLimit(1)
+            HStack(spacing: 8) {
+                Text(save.directory.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                Spacer()
+                if isCurrent { Text("▶ THIS TAB") }
+                Text(save.updated, format: .relative(presentation: .named))
+            }
+            .font(Theme.ui(12))
+            .foregroundStyle(isHovered ? Theme.navy.opacity(0.7) : Theme.dim)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Slant(amount: 8).fill(isHovered ? Theme.ice : .clear))
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
     }
 }
 

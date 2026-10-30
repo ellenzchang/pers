@@ -81,6 +81,16 @@ final class Session: ObservableObject, Identifiable {
         startNewSession()
     }
 
+    /// Continues a CLI session in this tab, moving to the folder it ran in since `--resume` only finds
+    /// sessions recorded under the current directory.
+    func load(_ saved: SavedSession) {
+        guard !isBusy else { return }
+        if directory == saved.directory { startNewSession() } else { directory = saved.directory }
+        sessionId = saved.id
+        messages = SaveData.messages(in: saved.url)
+        cost = 0
+    }
+
     /// Each Claude session gets one outfit for its whole lifetime.
     private func startNewSession() {
         sessionId = nil
@@ -99,11 +109,8 @@ final class Session: ObservableObject, Identifiable {
     /// Project folder names are an encoding of the working directory, so look in all of them. An unreadable
     /// projects folder counts as present rather than ending every tab's session.
     private static func transcriptExists(_ sessionId: String) -> Bool {
-        let projects = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".claude/projects")
-        guard let folders = try? FileManager.default.contentsOfDirectory(at: projects, includingPropertiesForKeys: nil) else {
-            return true
-        }
-        return folders.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent("\(sessionId).jsonl").path) }
+        guard let transcripts = SaveData.transcripts() else { return true }
+        return transcripts.contains { $0.lastPathComponent == "\(sessionId).jsonl" }
     }
 
     func stop() {
@@ -371,22 +378,26 @@ final class Session: ObservableObject, Identifiable {
     }
 
     private func append(block: [String: Any]) {
+        guard let message = Self.message(from: block) else { return }
+        messages.append(message)
+        if message.speaker == .claude { startTyping(message) }
+    }
+
+    nonisolated static func message(from block: [String: Any]) -> ChatMessage? {
         switch block["type"] as? String {
         case "text":
-            guard let text = (block["text"] as? String)?.trimmed, !text.isEmpty else { return }
-            let message = ChatMessage(speaker: .claude, text: text)
-            messages.append(message)
-            startTyping(message)
+            guard let text = (block["text"] as? String)?.trimmed, !text.isEmpty else { return nil }
+            return ChatMessage(speaker: .claude, text: text)
         case "tool_use":
             let name = block["name"] as? String ?? "tool"
-            let detail = Self.detail(of: block["input"] as? [String: Any] ?? [:])
-            messages.append(ChatMessage(speaker: .tool, text: "\(name)\t\(detail)"))
+            let detail = detail(of: block["input"] as? [String: Any] ?? [:])
+            return ChatMessage(speaker: .tool, text: "\(name)\t\(detail)")
         default:
-            break
+            return nil
         }
     }
 
-    private static func detail(of input: [String: Any]) -> String {
+    nonisolated static func detail(of input: [String: Any]) -> String {
         ["command", "file_path", "pattern", "url", "query", "description", "skill", "prompt"]
             .lazy.compactMap { input[$0] as? String }.first ?? ""
     }
