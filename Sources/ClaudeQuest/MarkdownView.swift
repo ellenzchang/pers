@@ -9,22 +9,48 @@ struct MarkdownView: View {
             ForEach(Array(Self.segments(of: text).enumerated()), id: \.offset) { _, segment in
                 switch segment {
                 case .prose(let prose):
-                    Text(Self.inline(prose))
-                        .font(Theme.body)
-                        .foregroundStyle(Theme.text)
-                        .lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Self.prose(prose)
                 case .code(let language, let code):
                     CodeBlock(language: language, code: code)
+                case .list(let items):
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(item.marker)
+                                    .font(Theme.body.weight(.heavy))
+                                    .foregroundStyle(Theme.cyan)
+                                Self.prose(item.text)
+                            }
+                            .padding(.leading, CGFloat(item.level) * 18)
+                        }
+                    }
+                case .table(let rows):
+                    MarkdownTable(rows: rows)
                 }
             }
         }
         .textSelection(.enabled)
     }
 
+    static func prose(_ text: String) -> some View {
+        Text(inline(text))
+            .font(Theme.body)
+            .foregroundStyle(Theme.text)
+            .lineSpacing(3)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     enum Segment {
         case prose(String)
         case code(language: String, code: String)
+        case list([ListItem])
+        case table([[String]])
+    }
+
+    struct ListItem {
+        var level: Int
+        var marker: String
+        var text: String
     }
 
     /// Splits on ``` fences; an unterminated fence (mid-typewriter) still renders as code.
@@ -41,17 +67,41 @@ struct MarkdownView: View {
         }
 
         for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.trimmingCharacters(in: .whitespaces).hasPrefix("```") {
+            let content = line.trimmingCharacters(in: .whitespaces)
+            if content.hasPrefix("```") {
                 if let lines = code {
                     result.append(.code(language: language, code: lines.joined(separator: "\n")))
                     code = nil
                 } else {
                     flushProse()
-                    language = line.trimmingCharacters(in: .whitespaces).dropFirst(3).trimmed
+                    language = content.dropFirst(3).trimmed
                     code = []
                 }
             } else if code != nil {
                 code?.append(line)
+            } else if content.hasPrefix("|") {
+                let cells = content.trimmingCharacters(in: CharacterSet(charactersIn: "|"))
+                    .split(separator: "|", omittingEmptySubsequences: false).map(\.trimmed)
+                if cells.allSatisfy({ !$0.isEmpty && $0.allSatisfy(":-".contains) }) { continue }
+                let continuesTable = prose.isEmpty
+                flushProse()
+                if continuesTable, case .table(let rows) = result.last {
+                    result[result.count - 1] = .table(rows + [cells])
+                } else {
+                    result.append(.table([cells]))
+                }
+            } else if let item = listItem(line) {
+                // Blank lines between items keep a loose list together.
+                let continuesList = prose.allSatisfy { $0.trimmed.isEmpty }
+                flushProse()
+                if continuesList, case .list(let items) = result.last {
+                    result[result.count - 1] = .list(items + [item])
+                } else {
+                    result.append(.list([item]))
+                }
+            } else if line.first?.isWhitespace == true, !content.isEmpty, prose.isEmpty, case .list(var items) = result.last {
+                items[items.count - 1].text += " " + content
+                result[result.count - 1] = .list(items)
             } else {
                 prose.append(line)
             }
@@ -59,6 +109,17 @@ struct MarkdownView: View {
         if let code { result.append(.code(language: language, code: code.joined(separator: "\n"))) }
         flushProse()
         return result
+    }
+
+    private static func listItem(_ line: Substring) -> ListItem? {
+        let indent = line.prefix { $0 == " " || $0 == "\t" }
+        let rest = line.dropFirst(indent.count)
+        guard let space = rest.firstIndex(of: " ") else { return nil }
+        let marker = rest[..<space]
+        let isBullet = ["-", "*", "+"].contains(marker)
+        let isNumbered = marker.count > 1 && marker.dropLast().allSatisfy(\.isNumber) && ".)".contains(marker.last!)
+        guard isBullet || isNumbered else { return nil }
+        return ListItem(level: indent.count / 2, marker: isBullet ? "•" : String(marker), text: rest[space...].trimmed)
     }
 
     static func inline(_ prose: String) -> AttributedString {
@@ -76,6 +137,31 @@ struct MarkdownView: View {
             attributed[run.range].foregroundColor = Theme.gold
         }
         return attributed
+    }
+}
+
+private struct MarkdownTable: View {
+    var rows: [[String]]
+
+    var body: some View {
+        let columns = rows.map(\.count).max() ?? 0
+        Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                GridRow {
+                    ForEach(0..<columns, id: \.self) { column in
+                        Text(MarkdownView.inline(column < row.count ? row[column] : ""))
+                            .font(index == 0 ? Theme.body.weight(.heavy) : Theme.body)
+                            .foregroundStyle(index == 0 ? Theme.cyan : Theme.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(index == 0 ? Theme.cyan.opacity(0.15) : Theme.cyan.opacity(index.isMultiple(of: 2) ? 0.05 : 0))
+                    }
+                }
+            }
+        }
+        .overlay(Rectangle().strokeBorder(Theme.cyan.opacity(0.35), lineWidth: 1.5))
     }
 }
 

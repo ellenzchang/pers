@@ -44,5 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Needed when launched as a bare SwiftPM binary rather than from the .app bundle.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        // Answering a permission prompt after the CLI has exited writes to a closed pipe; don't let that kill the app.
+        signal(SIGPIPE, SIG_IGN)
     }
 }

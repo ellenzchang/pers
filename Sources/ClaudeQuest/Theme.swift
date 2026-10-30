@@ -63,38 +63,72 @@ struct CutPanel: Shape {
     }
 }
 
+/// Quadrilateral whose corners drift on out-of-phase sine waves, so the outline keeps changing shape.
+struct MorphingPanel: Shape {
+    var time: Double
+    var phase: Double = 0
+    var wobble: CGFloat = 9
+
+    func path(in rect: CGRect) -> Path {
+        let corners = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
+                       CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY)]
+        return Path { path in
+            for (index, corner) in corners.enumerated() {
+                let t = time + phase + Double(index) * 1.9
+                let point = CGPoint(x: corner.x + wobble * sin(t * 0.8), y: corner.y + wobble * cos(t * 1.1))
+                if index == 0 { path.move(to: point) } else { path.addLine(to: point) }
+            }
+            path.closeSubpath()
+        }
+    }
+}
+
 struct Panel: ViewModifier {
     var light = false
     var accent: Color = Theme.cyan
     var padding: CGFloat = 14
+    var morphing = false
 
     func body(content: Content) -> some View {
         content
             .padding(padding)
             .background {
-                ZStack {
-                    CutPanel().fill(accent.opacity(0.35)).offset(x: 6, y: 6)
-                    if light {
-                        CutPanel().fill(Theme.ice)
-                    } else {
-                        CutPanel().fill(LinearGradient(colors: [Theme.panelTop, Theme.panelBottom], startPoint: .top, endPoint: .bottom))
-                            .opacity(0.94)
+                if morphing {
+                    TimelineView(.animation) { timeline in
+                        let time = timeline.date.timeIntervalSinceReferenceDate
+                        layers(MorphingPanel(time: time), shadow: MorphingPanel(time: time, phase: 2.5))
                     }
-                    CutPanel().stroke(accent.opacity(light ? 0 : 0.7), lineWidth: 1.5)
+                } else {
+                    layers(CutPanel(), shadow: CutPanel())
                 }
             }
+    }
+
+    private func layers(_ shape: some Shape, shadow: some Shape) -> some View {
+        ZStack {
+            shadow.fill(accent.opacity(0.35)).offset(x: 6, y: 6)
+            if light {
+                shape.fill(Theme.ice)
+            } else {
+                shape.fill(LinearGradient(colors: [Theme.panelTop, Theme.panelBottom], startPoint: .top, endPoint: .bottom))
+                    .opacity(0.94)
+            }
+            shape.stroke(accent.opacity(light ? 0 : 0.7), lineWidth: 1.5)
+        }
     }
 }
 
 extension View {
-    func panel(light: Bool = false, accent: Color = Theme.cyan, padding: CGFloat = 14) -> some View {
-        modifier(Panel(light: light, accent: accent, padding: padding))
+    func panel(light: Bool = false, accent: Color = Theme.cyan, padding: CGFloat = 14, morphing: Bool = false) -> some View {
+        modifier(Panel(light: light, accent: accent, padding: padding, morphing: morphing))
     }
 }
 
 struct NamePlate: View {
     var name: String
     var color: Color = Theme.ice
+    var shadowColor: Color = Theme.cyan
+    var morphing = false
 
     var body: some View {
         Text(name)
@@ -103,11 +137,22 @@ struct NamePlate: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 3)
             .background {
-                ZStack {
-                    Slant(amount: 10).fill(Theme.cyan).offset(x: 4, y: 3)
-                    Slant(amount: 10).fill(color)
+                if morphing {
+                    TimelineView(.animation) { timeline in
+                        let time = timeline.date.timeIntervalSinceReferenceDate
+                        layers(MorphingPanel(time: time, wobble: 4), shadow: MorphingPanel(time: time, phase: 2.5, wobble: 4))
+                    }
+                } else {
+                    layers(Slant(amount: 10), shadow: Slant(amount: 10))
                 }
             }
+    }
+
+    private func layers(_ shape: some Shape, shadow: some Shape) -> some View {
+        ZStack {
+            shadow.fill(shadowColor).offset(x: 4, y: 3)
+            shape.fill(color)
+        }
     }
 }
 

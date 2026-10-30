@@ -17,8 +17,10 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var isBusy = false
     @Published private(set) var typingId: UUID?
     @Published private(set) var revealed = 0
+    @Published private(set) var prompt: PermissionPrompt?
 
     private var process: Process?
+    private var input: FileHandle?
     private var typer: Timer?
 
     init(directory: String, model: ClaudeModel = .sonnet, mode: PermissionMode = .acceptEdits) {
@@ -92,8 +94,8 @@ final class Session: ObservableObject, Identifiable {
         isBusy = true
         if text.hasPrefix("!") { return runShell(String(text.dropFirst())) }
 
-        var args = ["-p", text, "--output-format", "stream-json", "--verbose",
-                    "--model", model.rawValue, "--permission-mode", mode.rawValue]
+        var args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                    "--permission-prompt-tool", "stdio", "--model", model.rawValue, "--permission-mode", mode.rawValue]
         if let effort { args += ["--effort", effort.rawValue] }
         if let sessionId { args += ["--resume", sessionId] }
 
@@ -102,10 +104,10 @@ final class Session: ObservableObject, Identifiable {
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-lc", "exec \"$0\" \"$@\"", Self.claudePath] + args
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
-        let out = Pipe(), err = Pipe()
+        let out = Pipe(), err = Pipe(), stdin = Pipe()
         process.standardOutput = out
         process.standardError = err
-        process.standardInput = FileHandle.nullDevice
+        process.standardInput = stdin
 
         do {
             try process.run()
@@ -114,6 +116,8 @@ final class Session: ObservableObject, Identifiable {
             return
         }
         self.process = process
+        input = stdin.fileHandleForWriting
+        write(["type": "user", "message": ["role": "user", "content": text]])
 
         Task {
             var gotResult = false
@@ -188,8 +192,41 @@ final class Session: ObservableObject, Identifiable {
         return output.split(separator: "\n").last.map { String($0).trimmed }.flatMap { $0.hasPrefix("/") ? $0 : nil } ?? "claude"
     }()
 
+    func answer(_ prompt: PermissionPrompt, allow: Bool, always: Bool = false) {
+        guard self.prompt?.requestId == prompt.requestId else { return }
+        self.prompt = nil
+        respond(to: prompt, with: allow
+            ? ["behavior": "allow", "updatedInput": prompt.input, "updatedPermissions": always ? prompt.suggestions : []]
+            : ["behavior": "deny", "message": "The user denied this tool call."])
+    }
+
+    /// Answers the open AskUserQuestion step; the CLI gets every answer at once after the last question.
+    func reply(_ text: String) {
+        guard var prompt, let question = prompt.question else { return }
+        messages.append(ChatMessage(speaker: .user, text: text))
+        prompt.answers[question.text] = text
+        guard prompt.question == nil else { return self.prompt = prompt }
+        self.prompt = nil
+        respond(to: prompt, with: ["behavior": "allow", "updatedInput": prompt.input.merging(["answers": prompt.answers]) { $1 }])
+    }
+
+    private func respond(to prompt: PermissionPrompt, with decision: [String: Any]) {
+        write(["type": "control_response",
+               "response": ["subtype": "success", "request_id": prompt.requestId, "response": decision]])
+    }
+
+    /// The CLI reads stream-json from stdin: the opening user message, then answers to permission requests.
+    private func write(_ object: [String: Any]) {
+        guard let input, var data = try? JSONSerialization.data(withJSONObject: object) else { return }
+        data.append(0x0A)
+        try? input.write(contentsOf: data)
+    }
+
     private func finish(error: String?) {
         if let error { messages.append(ChatMessage(speaker: .system, text: error)) }
+        try? input?.close()
+        input = nil
+        prompt = nil
         process = nil
         isBusy = false
         refreshGit()
@@ -209,8 +246,21 @@ final class Session: ObservableObject, Identifiable {
                   let message = event["message"] as? [String: Any],
                   let blocks = message["content"] as? [[String: Any]] else { break }
             for block in blocks { append(block: block) }
+        case "control_request":
+            guard let id = event["request_id"] as? String,
+                  let request = event["request"] as? [String: Any],
+                  request["subtype"] as? String == "can_use_tool" else { break }
+            let input = request["input"] as? [String: Any] ?? [:]
+            let suggestions = (request["permission_suggestions"] as? [[String: Any]] ?? [])
+                .filter { $0["type"] as? String != "setMode" }
+            prompt = PermissionPrompt(requestId: id, tool: request["tool_name"] as? String ?? "tool",
+                                      detail: Self.detail(of: input), input: input, suggestions: suggestions,
+                                      questions: (input["questions"] as? [[String: Any]] ?? []).map(PermissionPrompt.Question.init))
         case "result":
             cost += event["total_cost_usd"] as? Double ?? 0
+            // Closing stdin lets the CLI exit now that the turn is over.
+            try? input?.close()
+            input = nil
             if event["is_error"] as? Bool == true {
                 messages.append(ChatMessage(speaker: .system, text: event["result"] as? String ?? "Unknown error"))
             }
@@ -230,13 +280,16 @@ final class Session: ObservableObject, Identifiable {
             startTyping(message)
         case "tool_use":
             let name = block["name"] as? String ?? "tool"
-            let input = block["input"] as? [String: Any] ?? [:]
-            let detail = ["command", "file_path", "pattern", "url", "query", "description", "skill", "prompt"]
-                .lazy.compactMap { input[$0] as? String }.first ?? ""
+            let detail = Self.detail(of: block["input"] as? [String: Any] ?? [:])
             messages.append(ChatMessage(speaker: .tool, text: "\(name)\t\(detail)"))
         default:
             break
         }
+    }
+
+    private static func detail(of input: [String: Any]) -> String {
+        ["command", "file_path", "pattern", "url", "query", "description", "skill", "prompt"]
+            .lazy.compactMap { input[$0] as? String }.first ?? ""
     }
 
     private func startTyping(_ message: ChatMessage) {

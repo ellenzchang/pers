@@ -49,3 +49,31 @@ struct SessionSnapshot: Codable {
     var messages: [ChatMessage]
     var outfit: Int?
 }
+
+struct PermissionPrompt {
+    var requestId: String
+    var tool: String
+    var detail: String
+    var input: [String: Any]
+    var suggestions: [[String: Any]]
+    var questions: [Question]
+    var answers: [String: String] = [:]
+
+    /// The first question still waiting for an answer, when the prompt is an AskUserQuestion call.
+    var question: Question? { questions.first { answers[$0.text] == nil } }
+    var step: String { "\(requestId)/\(answers.count)" }
+
+    struct Question {
+        var text: String
+        var header: String
+        var options: [(label: String, description: String)]
+
+        init(json: [String: Any]) {
+            text = json["question"] as? String ?? ""
+            header = json["header"] as? String ?? ""
+            options = (json["options"] as? [[String: Any]] ?? []).map {
+                ($0["label"] as? String ?? "", $0["description"] as? String ?? "")
+            }
+        }
+    }
+}

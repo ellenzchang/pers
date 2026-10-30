@@ -23,6 +23,15 @@ struct MessageLog: View {
             .onChange(of: session.revealed) { scrollDown(proxy, animated: false) }
             .onAppear { scrollDown(proxy, animated: false) }
         }
+        .overlay(alignment: .trailing) {
+            if let prompt = session.prompt {
+                PermissionBox(session: session, prompt: prompt)
+                    .id(prompt.step)
+                    .padding(.trailing, 28)
+                    .transition(.scale(scale: 0.6, anchor: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.6), value: session.prompt?.step)
     }
 
     private func scrollDown(_ proxy: ScrollViewProxy, animated: Bool = true) {
@@ -56,6 +65,8 @@ struct MessageRow: View {
 
     var body: some View {
         switch message.speaker {
+        case .user where text.hasPrefix("!"):
+            toolRow(name: "BASH", detail: text.dropFirst().trimmed, trailing: true)
         case .user:
             HStack {
                 Spacer(minLength: 100)
@@ -76,23 +87,7 @@ struct MessageRow: View {
             }
         case .tool:
             let parts = text.split(separator: "\t", maxSplits: 1).map(String.init)
-            HStack(alignment: .center, spacing: 10) {
-                Text(parts.first?.uppercased() ?? "TOOL")
-                    .font(Theme.ui(13, weight: .black))
-                    .foregroundStyle(Theme.navy)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 2)
-                    .background(Slant(amount: 7).fill(Theme.cyan))
-                if parts.count > 1 {
-                    Text(parts[1])
-                        .font(Theme.code)
-                        .foregroundStyle(Theme.dim)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-            }
-            .padding(.leading, 18)
-            .textSelection(.enabled)
+            toolRow(name: parts.first?.uppercased() ?? "TOOL", detail: parts.count > 1 ? parts[1] : nil)
         case .shell:
             CodeBlock(language: "shell", code: text)
                 .padding(.leading, 18)
@@ -107,6 +102,34 @@ struct MessageRow: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity)
         }
+    }
+
+    private func toolRow(name: String, detail: String?, trailing: Bool = false) -> some View {
+        let tag = Text(name)
+            .font(Theme.ui(13, weight: .black))
+            .foregroundStyle(Theme.navy)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
+            .background(Slant(amount: 7).fill(Theme.cyan))
+        let command = detail.map {
+            Text($0)
+                .font(Theme.code)
+                .foregroundStyle(Theme.dim)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        return HStack(alignment: .center, spacing: 10) {
+            if trailing {
+                Spacer(minLength: 100)
+                command
+                tag
+            } else {
+                tag
+                command
+            }
+        }
+        .padding(trailing ? .trailing : .leading, 18)
+        .textSelection(.enabled)
     }
 
     private func bubble<Content: View>(name: String, plate: Color, light: Bool, alignment: HorizontalAlignment,
@@ -137,12 +160,12 @@ struct DialogueBox: View {
                     .frame(width: 210, height: 248)
                     .frame(width: 210, height: 150, alignment: .bottom)
                     .allowsHitTesting(false)
-                NamePlate(name: "CLAUDE")
+                NamePlate(name: "CLAUDE", morphing: true)
             }
 
             VStack(alignment: .leading, spacing: -8) {
-                NamePlate(name: session.isBusy ? "CLAUDE IS THINKING…" : isShell ? "SHELL COMMAND" : "WHAT WILL YOU DO?",
-                          color: isShell ? Theme.gold : Theme.cyan)
+                NamePlate(name: isAnswering ? "YOUR ANSWER" : session.isBusy ? "CLAUDE IS THINKING…" : isShell ? "SHELL COMMAND" : "WHAT WILL YOU DO?",
+                          color: isShell ? Theme.gold : Theme.cyan, shadowColor: Theme.ocean, morphing: true)
                     .padding(.horizontal, 18)
                     .zIndex(1)
                 ZStack(alignment: .topLeading) {
@@ -166,7 +189,7 @@ struct DialogueBox: View {
                 .padding(.top, 8)
                 .frame(height: 112)
                 .background(Theme.codeBackground.opacity(isShell ? 0.9 : 0))
-                .panel(accent: isShell ? Theme.gold : Theme.cyan, padding: 16)
+                .panel(accent: isShell ? Theme.gold : Theme.cyan, padding: 16, morphing: true)
                 .animation(.easeOut(duration: 0.15), value: isShell)
             }
 
@@ -181,6 +204,7 @@ struct DialogueBox: View {
     }
 
     private var isShell: Bool { draft.hasPrefix("!") }
+    private var isAnswering: Bool { session.prompt?.question != nil }
 
     private var mood: Mood {
         if session.isTalking { return .talking }
@@ -189,8 +213,14 @@ struct DialogueBox: View {
     }
 
     private func send() {
-        guard !session.isBusy, !draft.trimmed.isEmpty else { return }
-        session.send(draft)
+        guard !draft.trimmed.isEmpty else { return }
+        if isAnswering {
+            session.reply(draft.trimmed)
+        } else if !session.isBusy {
+            session.send(draft)
+        } else {
+            return
+        }
         draft = ""
     }
 }
@@ -199,30 +229,104 @@ private struct CommandMenu: View {
     @ObservedObject var session: Session
     var canSend: Bool
     var send: () -> Void
-    @ViewState private var hovered: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if !session.isBusy || session.prompt?.question != nil {
+                MenuItem(title: "SEND", index: 0, color: canSend ? Theme.ice : Theme.dim, action: send)
+            }
             if session.isBusy {
-                item("STOP", index: 0, color: Theme.red, shortcut: ".", action: session.stop)
-            } else {
-                item("SEND", index: 0, color: canSend ? Theme.ice : Theme.dim, action: send)
+                MenuItem(title: "STOP", index: session.prompt?.question != nil ? 1 : 0, color: Theme.red, shortcut: ".", action: session.stop)
             }
             if session.isTalking {
-                item("SKIP", index: 1, action: session.skipTyping)
+                MenuItem(title: "SKIP", index: 1, action: session.skipTyping)
             }
-            item("NEW GAME", index: 2, action: session.reset)
+            MenuItem(title: "NEW GAME", index: 2, action: session.reset)
                 .help("Start a fresh conversation in this tab")
         }
         .frame(width: 150, alignment: .leading)
         .frame(minHeight: 128, alignment: .center)
     }
+}
 
-    /// Items step rightward down the list, and the hovered one flips to a solid bar that slides out.
-    private func item(_ title: String, index: Int, color: Color = Theme.ice, shortcut: KeyEquivalent? = nil,
-                      action: @escaping () -> Void) -> some View {
-        let isHovered = hovered == title
-        return Button(action: action) {
+private struct PermissionBox: View {
+    @ObservedObject var session: Session
+    var prompt: PermissionPrompt
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: -8) {
+            NamePlate(name: title, color: Theme.gold, shadowColor: Theme.ocean)
+                .padding(.horizontal, 18)
+                .zIndex(1)
+            VStack(alignment: .leading, spacing: 12) {
+                if let question = prompt.question {
+                    questionBody(question)
+                } else {
+                    permissionBody
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 6)
+            .panel(accent: Theme.gold, padding: 18)
+        }
+        .frame(width: 300)
+    }
+
+    private var title: String {
+        guard let question = prompt.question else { return "USE \(prompt.tool.uppercased())?" }
+        let progress = prompt.questions.count > 1 ? "  \(prompt.answers.count + 1)/\(prompt.questions.count)" : ""
+        return (question.header.isEmpty ? "QUESTION" : question.header.uppercased()) + progress
+    }
+
+    @ViewBuilder
+    private func questionBody(_ question: PermissionPrompt.Question) -> some View {
+        Text(question.text)
+            .font(Theme.body)
+            .foregroundStyle(Theme.text)
+            .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
+                MenuItem(title: option.label.uppercased(), index: index) { session.reply(option.label) }
+                    .help(option.description)
+            }
+        }
+        Text("…or type your own answer below")
+            .font(Theme.ui(12, weight: .bold))
+            .foregroundStyle(Theme.dim)
+    }
+
+    @ViewBuilder
+    private var permissionBody: some View {
+        if !prompt.detail.isEmpty {
+            Text(prompt.detail)
+                .font(Theme.code)
+                .foregroundStyle(Theme.dim)
+                .lineLimit(4)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+        }
+        VStack(alignment: .leading, spacing: 6) {
+            MenuItem(title: "ALLOW", index: 0) { session.answer(prompt, allow: true) }
+            if !prompt.suggestions.isEmpty {
+                MenuItem(title: "ALWAYS", index: 1, color: Theme.aqua) { session.answer(prompt, allow: true, always: true) }
+                    .help("Allow and remember this rule")
+            }
+            MenuItem(title: "DENY", index: 2, color: Theme.red) { session.answer(prompt, allow: false) }
+        }
+    }
+}
+
+/// Items step rightward down the list, and the hovered one flips to a solid bar that slides out.
+private struct MenuItem: View {
+    var title: String
+    var index: Int
+    var color: Color = Theme.ice
+    var shortcut: KeyEquivalent?
+    var action: () -> Void
+    @ViewState private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
             Text(title)
                 .font(Theme.display(26))
                 .foregroundStyle(isHovered ? Theme.navy : color)
@@ -234,7 +338,7 @@ private struct CommandMenu: View {
         .buttonStyle(.plain)
         .offset(x: CGFloat(index) * 10 + (isHovered ? 8 : 0))
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovered)
-        .onHover { hovered = $0 ? title : (hovered == title ? nil : hovered) }
+        .onHover { isHovered = $0 }
         .modifier(OptionalShortcut(key: shortcut))
     }
 }
