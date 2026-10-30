@@ -589,6 +589,8 @@ private struct LoadData: View {
     @Environment(\.dismiss) private var dismiss
     var session: Session
     @ViewState private var saves: [SavedSession]?
+    @ViewState private var selected = 0
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: -8) {
@@ -600,12 +602,19 @@ private struct LoadData: View {
                     Text("No saved sessions found.")
                         .foregroundStyle(Theme.dim)
                 } else if let saves {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 4) {
-                            ForEach(saves) { save in
-                                Button { load(save) } label: { SaveRow(save: save, isCurrent: save.id == session.sessionId) }
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 4) {
+                                ForEach(saves) { save in
+                                    Button { load(save) } label: {
+                                        SaveRow(save: save, isCurrent: save.id == session.sessionId, isSelected: save.id == selectedSave?.id)
+                                    }
                                     .buttonStyle(.plain)
+                                }
                             }
+                        }
+                        .onChange(of: selected) {
+                            if let id = selectedSave?.id { proxy.scrollTo(id) }
                         }
                     }
                 } else {
@@ -626,7 +635,29 @@ private struct LoadData: View {
                 .keyboardShortcut(.cancelAction)
                 .padding(24)
         }
-        .task { saves = await Task.detached { SaveData.list() }.value }
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(keys: [.upArrow, .downArrow, .return], phases: [.down, .repeat], action: select)
+        .task {
+            focused = true
+            saves = await Task.detached { SaveData.list() }.value
+        }
+    }
+
+    private var selectedSave: SavedSession? {
+        guard let saves, !saves.isEmpty else { return nil }
+        return saves[min(selected, saves.count - 1)]
+    }
+
+    private func select(_ press: KeyPress) -> KeyPress.Result {
+        guard let saves, let save = selectedSave else { return .ignored }
+        switch press.key {
+        case .upArrow: selected = max(selected - 1, 0)
+        case .downArrow: selected = min(selected + 1, saves.count - 1)
+        default: load(save)
+        }
+        return .handled
     }
 
     /// A session already open in another tab is switched to rather than duplicated.
@@ -644,13 +675,15 @@ private struct LoadData: View {
 private struct SaveRow: View {
     var save: SavedSession
     var isCurrent: Bool
+    var isSelected: Bool
     @ViewState private var isHovered = false
+    private var isHighlighted: Bool { isHovered || isSelected }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(save.title)
                 .font(Theme.ui(15, weight: .bold))
-                .foregroundStyle(isHovered ? Theme.navy : Theme.ice)
+                .foregroundStyle(isHighlighted ? Theme.navy : Theme.ice)
                 .lineLimit(1)
             HStack(spacing: 8) {
                 Text(save.directory.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
@@ -661,11 +694,11 @@ private struct SaveRow: View {
                 Text(save.updated, format: .relative(presentation: .named))
             }
             .font(Theme.ui(12))
-            .foregroundStyle(isHovered ? Theme.navy.opacity(0.7) : Theme.dim)
+            .foregroundStyle(isHighlighted ? Theme.navy.opacity(0.7) : Theme.dim)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Slant(amount: 8).fill(isHovered ? Theme.ice : .clear))
+        .background(Slant(amount: 8).fill(isHighlighted ? Theme.ice : .clear))
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
     }
