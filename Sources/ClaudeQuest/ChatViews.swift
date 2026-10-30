@@ -183,15 +183,20 @@ struct DialogueBox: View {
     @ViewState private var stashedDraft = ""
     @ViewState private var isTerminal = false
     @ViewState private var exitArmed = false
+    @AppStorage(Self.showSpriteKey) private var showSprite = false
+
+    static let showSpriteKey = "showSprite"
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 16) {
             VStack(spacing: -6) {
-                // The bust is taller than its layout slot so it rises over the log, like a VN character.
-                Portrait(mood: mood, outfit: session.outfit)
-                    .frame(width: 210, height: 248)
-                    .frame(width: 210, height: 150, alignment: .bottom)
-                    .allowsHitTesting(false)
+                if showSprite {
+                    // The bust is taller than its layout slot so it rises over the log, like a VN character.
+                    Portrait(mood: mood, outfit: session.outfit)
+                        .frame(width: 210, height: 248)
+                        .frame(width: 210, height: 150, alignment: .bottom)
+                        .allowsHitTesting(false)
+                }
                 NamePlate(name: "CLAUDE", morphing: true)
             }
 

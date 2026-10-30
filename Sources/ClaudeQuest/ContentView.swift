@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject var store: AppStore
     @StateObject private var scroller = LogScroller()
     @StateObject private var navigator = Navigator()
+    @AppStorage(DialogueBox.showSpriteKey) private var showSprite = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +19,12 @@ struct ContentView: View {
             }
         }
         .background(MoonlitBackground())
+        .background {
+            Button("") { showSprite.toggle() }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .opacity(0)
+                .allowsHitTesting(false)
+        }
         .ignoresSafeArea(edges: .top)
         .preferredColorScheme(.dark)
         .frame(minWidth: 820, minHeight: 600)
