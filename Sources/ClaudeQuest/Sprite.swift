@@ -87,16 +87,19 @@ struct Portrait: View {
     private static let bust = CGRect(x: 420, y: 680, width: 1160, height: 1368)
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 12)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
             let blinkPhase = t.truncatingRemainder(dividingBy: 4.2)
             let eyes = blinkPhase < 0.06 ? 2 : blinkPhase < 0.14 ? 3 : blinkPhase < 0.2 ? 2 : 1
             let mouth = mood == .talking ? [1, 2, 3, 2][Int(t * 10) % 4] : 1
-            let bob = mood == .thinking ? CGFloat(Int(t * 4) % 2) * -3 : 0
 
             ZStack(alignment: .topTrailing) {
                 ZStack {
-                    Slant(amount: 36)
+                    MorphingPanel(time: t, phase: 2.1, wobble: 14)
+                        .fill(LinearGradient(colors: [Theme.navy.opacity(0.9), Theme.deep.opacity(0.3)], startPoint: .top, endPoint: .bottom))
+                        .padding(.vertical, 2)
+                        .padding(.horizontal, -10)
+                    MorphingPanel(time: t, wobble: 14)
                         .fill(LinearGradient(colors: [Theme.cyan.opacity(0.45), Theme.ice.opacity(0.08)], startPoint: .top, endPoint: .bottom))
                         .padding(.vertical, 10)
                     Theme.cyan.opacity(0.55)
@@ -104,7 +107,6 @@ struct Portrait: View {
                         .offset(x: 8, y: 6)
                     sprite(eyes: eyes, mouth: mouth)
                 }
-                .offset(y: bob)
                 if mood == .thinking {
                     Text(String(repeating: ".", count: Int(t * 3) % 3 + 1))
                         .font(Theme.ui(18, weight: .black))
