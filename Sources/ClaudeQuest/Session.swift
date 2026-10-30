@@ -90,6 +90,7 @@ final class Session: ObservableObject, Identifiable {
         guard !isBusy, !text.trimmed.isEmpty else { return }
         messages.append(ChatMessage(speaker: .user, text: text))
         isBusy = true
+        if text.hasPrefix("!") { return runShell(String(text.dropFirst())) }
 
         var args = ["-p", text, "--output-format", "stream-json", "--verbose",
                     "--model", model.rawValue, "--permission-mode", mode.rawValue]
@@ -130,6 +131,40 @@ final class Session: ObservableObject, Identifiable {
             } else {
                 finish(error: nil)
             }
+        }
+    }
+
+    /// Mirrors the CLI's `!` mode, which `claude -p` doesn't support. The trailing marker reports the
+    /// shell's final directory so a `cd` carries over to the tab.
+    private func runShell(_ command: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-lc", "\(command)\nprintf '\\036%s' \"$PWD\""]
+        process.currentDirectoryURL = URL(fileURLWithPath: directory)
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = out
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            finish(error: error.localizedDescription)
+            return
+        }
+        self.process = process
+
+        Task {
+            let data = await Task.detached { out.fileHandleForReading.readDataToEndOfFile() }.value
+            process.waitUntilExit()
+            var output = String(decoding: data, as: UTF8.self)
+            if let marker = output.lastIndex(of: "\u{1E}") {
+                let cwd = String(output[output.index(after: marker)...])
+                output = String(output[..<marker])
+                if cwd != directory { directory = cwd }
+            }
+            if !output.trimmed.isEmpty { messages.append(ChatMessage(speaker: .shell, text: output.trimmed)) }
+            finish(error: process.terminationReason == .uncaughtSignal ? "Interrupted." : nil)
         }
     }
 

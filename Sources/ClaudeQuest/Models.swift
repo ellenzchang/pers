@@ -29,7 +29,7 @@ enum Effort: String, CaseIterable, Codable, Identifiable {
 }
 
 enum Speaker: String, Codable {
-    case user, claude, tool, system
+    case user, claude, tool, shell, system
 }
 
 struct ChatMessage: Identifiable, Codable, Equatable {
