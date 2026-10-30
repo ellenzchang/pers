@@ -200,7 +200,7 @@ struct DialogueBox: View {
                     NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
                               textColor: inTerminal ? .black : Theme.navy, morphing: true)
                     commitCounts
-                    KeyHints(hints: navigationHints + [("⌘1 ⌘2", "tab"), ("⌘H J K L", "model")])
+                    KeyHints(hints: navigationHints + [("⌘1 ⌘2", "tab"), ("⌘⇧H J K L", "model")])
                 }
                 .padding(.horizontal, 18)
                 .zIndex(1)

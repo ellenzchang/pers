@@ -25,7 +25,7 @@ struct ClaudeQuestApp: App {
             CommandMenu("Party") {
                 ForEach(Array(zip(ClaudeModel.allCases, Self.modelKeys)), id: \.0) { model, key in
                     Button("Model: \(model.label)") { store.selected?.model = model }
-                        .keyboardShortcut(key)
+                        .keyboardShortcut(key, modifiers: [.command, .shift])
                 }
                 Divider()
                 Button("Toggle Diff") { store.selected?.toggleDiff() }.keyboardShortcut("d")
