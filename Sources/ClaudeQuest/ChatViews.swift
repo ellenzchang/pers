@@ -93,6 +93,10 @@ struct MessageRow: View {
             }
             .padding(.leading, 18)
             .textSelection(.enabled)
+        case .shell:
+            CodeBlock(language: "shell", code: text)
+                .padding(.leading, 18)
+                .textSelection(.enabled)
         case .system:
             Text(text)
                 .font(Theme.ui(13, weight: .bold))
@@ -137,19 +141,20 @@ struct DialogueBox: View {
             }
 
             VStack(alignment: .leading, spacing: -8) {
-                NamePlate(name: session.isBusy ? "CLAUDE IS THINKING…" : "WHAT WILL YOU DO?", color: Theme.cyan)
+                NamePlate(name: session.isBusy ? "CLAUDE IS THINKING…" : isShell ? "SHELL COMMAND" : "WHAT WILL YOU DO?",
+                          color: isShell ? Theme.gold : Theme.cyan)
                     .padding(.horizontal, 18)
                     .zIndex(1)
                 ZStack(alignment: .topLeading) {
                     if draft.isEmpty {
-                        Text("Speak to Claude…  (⏎ send · ⇧⏎ newline)")
+                        Text("Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell)")
                             .font(Theme.body)
                             .foregroundStyle(Theme.dim)
                             .padding(.leading, 5)
                     }
                     TextEditor(text: $draft)
-                        .font(Theme.body)
-                        .foregroundStyle(Theme.text)
+                        .font(isShell ? .system(size: 14, design: .monospaced) : Theme.body)
+                        .foregroundStyle(isShell ? Theme.gold : Theme.text)
                         .scrollContentBackground(.hidden)
                         .focused($focused)
                         .onKeyPress(.return, phases: .down) { press in
@@ -160,7 +165,9 @@ struct DialogueBox: View {
                 }
                 .padding(.top, 8)
                 .frame(height: 112)
-                .panel(padding: 16)
+                .background(Theme.codeBackground.opacity(isShell ? 0.9 : 0))
+                .panel(accent: isShell ? Theme.gold : Theme.cyan, padding: 16)
+                .animation(.easeOut(duration: 0.15), value: isShell)
             }
 
             CommandMenu(session: session, canSend: !draft.trimmed.isEmpty, send: send)
@@ -172,6 +179,8 @@ struct DialogueBox: View {
         .onAppear { focused = true }
         .onTapGesture { if session.isTalking { session.skipTyping() } }
     }
+
+    private var isShell: Bool { draft.hasPrefix("!") }
 
     private var mood: Mood {
         if session.isTalking { return .talking }
