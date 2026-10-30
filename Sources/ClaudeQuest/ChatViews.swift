@@ -50,52 +50,10 @@ struct MessageLog: View {
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.6), value: session.prompt?.step)
-        .overlay {
-            if session.showingRecap {
-                RecapOverlay(session: session)
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeOut(duration: 0.2), value: session.showingRecap)
     }
 
     private func scrollDown(_ proxy: ScrollViewProxy, animated: Bool = true) {
         withAnimation(animated ? .easeOut(duration: 0.2) : nil) { proxy.scrollTo("bottom", anchor: .bottom) }
-    }
-}
-
-private struct RecapOverlay: View {
-    @ObservedObject var session: Session
-
-    var body: some View {
-        ZStack {
-            Theme.deep.opacity(0.82)
-                .contentShape(Rectangle())
-                .onTapGesture(perform: session.dismissRecap)
-            VStack(alignment: .leading, spacing: -8) {
-                NamePlate(name: "RECAP", color: Theme.cyan)
-                    .padding(.horizontal, 18)
-                    .zIndex(1)
-                Group {
-                    if let recap = session.recap {
-                        Text(recap)
-                            .font(Theme.body)
-                            .foregroundStyle(Theme.text)
-                            .textSelection(.enabled)
-                    } else {
-                        Text("Recalling…")
-                            .font(Theme.body)
-                            .foregroundStyle(Theme.dim)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 6)
-                .panel(padding: 18)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: 620)
-            .padding(24)
-        }
     }
 }
 
@@ -125,6 +83,8 @@ struct MessageRow: View {
 
     var body: some View {
         switch message.speaker {
+        case .user where text.hasPrefix(Session.terminalMarker):
+            toolRow(name: "TERMINAL", detail: text.dropFirst().trimmed, trailing: true, color: Theme.green)
         case .user where text.hasPrefix("!"):
             toolRow(name: "BASH", detail: text.dropFirst().trimmed, trailing: true)
         case .user:
@@ -164,13 +124,13 @@ struct MessageRow: View {
         }
     }
 
-    private func toolRow(name: String, detail: String?, trailing: Bool = false) -> some View {
+    private func toolRow(name: String, detail: String?, trailing: Bool = false, color: Color = Theme.cyan) -> some View {
         let tag = Text(name)
             .font(Theme.ui(13, weight: .black))
             .foregroundStyle(Theme.navy)
             .padding(.horizontal, 12)
             .padding(.vertical, 2)
-            .background(Slant(amount: 7).fill(Theme.cyan))
+            .background(Slant(amount: 7).fill(color))
         let command = detail.map {
             Text($0)
                 .font(Theme.code)
@@ -213,6 +173,7 @@ struct DialogueBox: View {
     @FocusState private var focused: Bool
     @ViewState private var historyIndex: Int?
     @ViewState private var stashedDraft = ""
+    @ViewState private var isTerminal = false
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 16) {
@@ -226,25 +187,42 @@ struct DialogueBox: View {
             }
 
             VStack(alignment: .leading, spacing: -8) {
-                NamePlate(name: heading,
-                          color: isShell ? Theme.gold : Theme.cyan, shadowColor: Theme.ocean, morphing: true)
+                NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
+                          textColor: inTerminal ? .black : Theme.navy, morphing: true)
                     .padding(.horizontal, 18)
                     .zIndex(1)
                 ZStack(alignment: .topLeading) {
                     if session.draft.isEmpty {
-                        Text("Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell)")
+                        Text(inTerminal ? "Run a shell command…  (⇥ back to Claude)"
+                                        : "Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell · ⇥ terminal)")
                             .font(Theme.body)
                             .foregroundStyle(Theme.dim)
                             .padding(.leading, 5)
                     }
+                    if let suggestion {
+                        (Text(session.draft).foregroundStyle(.clear) + Text(suggestion).foregroundStyle(Theme.dim))
+                            .font(draftFont)
+                            .padding(.leading, 5)
+                            .allowsHitTesting(false)
+                    }
                     TextEditor(text: $session.draft)
-                        .font(isShell ? .system(size: 14, design: .monospaced) : Theme.body)
-                        .foregroundStyle(isShell ? Theme.gold : Theme.text)
+                        .font(draftFont)
+                        .foregroundStyle(isShell ? plateColor : Theme.text)
                         .scrollContentBackground(.hidden)
                         .focused($focused)
                         .onKeyPress(.return, phases: .down) { press in
                             if press.modifiers.contains(.shift) { return .ignored }
                             send()
+                            return .handled
+                        }
+                        .onKeyPress(.tab, phases: .down) { _ in
+                            guard session.draft.isEmpty, !isAnswering else { return .ignored }
+                            isTerminal.toggle()
+                            return .handled
+                        }
+                        .onKeyPress(.rightArrow, phases: .down) { _ in
+                            guard let suggestion else { return .ignored }
+                            session.draft += suggestion
                             return .handled
                         }
                         .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
@@ -256,14 +234,13 @@ struct DialogueBox: View {
                             return up ? olderHistory() : newerHistory()
                         }
                         .onChange(of: session.draft) {
-                            if let historyIndex, session.draft != session.inputHistory[historyIndex] { self.historyIndex = nil }
+                            if let historyIndex, shownEntry != session.inputHistory[historyIndex] { self.historyIndex = nil }
                         }
                 }
                 .padding(.top, 8)
                 .frame(height: 112)
-                .background(Theme.codeBackground.opacity(isShell ? 0.9 : 0))
-                .panel(accent: isShell ? Theme.gold : Theme.cyan, padding: 16, morphing: true)
-                .overlay(alignment: .bottomTrailing) { logButton.padding(10) }
+                .background(Theme.codeBackground.opacity(isShell && !inTerminal ? 0.9 : 0))
+                .panel(accent: plateColor, dark: inTerminal, padding: 16, morphing: true)
                 .animation(.easeOut(duration: 0.15), value: isShell)
             }
 
@@ -277,23 +254,19 @@ struct DialogueBox: View {
         .onTapGesture { if session.isTalking { session.skipTyping() } }
     }
 
-    private var logButton: some View {
-        Button {
-            session.showingRecap ? session.dismissRecap() : session.requestRecap()
-        } label: {
-            Chip(active: session.showingRecap) { Text("LOG") }
-        }
-        .buttonStyle(.plain)
-        .disabled(session.messages.isEmpty || session.isBusy)
-        .opacity(session.messages.isEmpty || session.isBusy ? 0.4 : 1)
-        .help("Recap this session so far")
-    }
-
     private var heading: String {
         if isAnswering { return "YOUR ANSWER" }
-        if session.isBusy { return "CLAUDE IS THINKING…" }
-        if let historyIndex { return "HISTORY \(historyIndex + 1)/\(session.inputHistory.count)" }
+        if session.isBusy && !session.isRunningShell { return "CLAUDE IS THINKING…" }
+        if let historyIndex {
+            return (inTerminal ? "TERMINAL " : "") + "HISTORY \(historyIndex + 1)/\(session.inputHistory.count)"
+        }
+        if inTerminal { return "TERMINAL" }
         return isShell ? "SHELL COMMAND" : "WHAT WILL YOU DO?"
+    }
+
+    private var plateColor: Color {
+        if inTerminal { return Theme.green }
+        return isShell ? Theme.gold : Theme.cyan
     }
 
     /// Arrow keys only recall history while they'd have nowhere to move the cursor: a single-line draft,
@@ -308,10 +281,10 @@ struct DialogueBox: View {
         if let historyIndex {
             self.historyIndex = max(historyIndex - 1, 0)
         } else {
-            stashedDraft = session.draft
+            stashedDraft = shownEntry
             historyIndex = history.count - 1
         }
-        session.draft = history[historyIndex!]
+        show(history[historyIndex!])
         return .handled
     }
 
@@ -319,20 +292,43 @@ struct DialogueBox: View {
         guard let historyIndex else { return .ignored }
         if historyIndex < session.inputHistory.count - 1 {
             self.historyIndex = historyIndex + 1
-            session.draft = session.inputHistory[historyIndex + 1]
+            show(session.inputHistory[historyIndex + 1])
         } else {
             self.historyIndex = nil
-            session.draft = stashedDraft
+            show(stashedDraft)
         }
         return .handled
     }
 
-    private var isShell: Bool { session.draft.hasPrefix("!") }
+    /// The draft as it would be sent, so a recalled terminal command comes back in terminal mode.
+    private var shownEntry: String {
+        (isTerminal ? Session.terminalMarker : "") + session.draft
+    }
+
+    private func show(_ entry: String) {
+        isTerminal = entry.hasPrefix(Session.terminalMarker)
+        session.draft = isTerminal ? String(entry.dropFirst()) : entry
+    }
+
+    /// Like zsh-autosuggestions: the rest of the newest command, from zsh's history or this tab's, that starts
+    /// with the draft.
+    private var suggestion: String? {
+        let draft = session.draft
+        guard inTerminal, historyIndex == nil, !draft.isEmpty else { return nil }
+        let tabCommands = session.inputHistory.filter { $0.hasPrefix(Session.terminalMarker) }.map { String($0.dropFirst()) }
+        let match = (ShellHistory.commands + tabCommands).last { $0.hasPrefix(draft) && $0 != draft }
+        return match.map { String($0.dropFirst(draft.count)) }
+    }
+
+    private var draftFont: Font { isShell ? .system(size: 14, design: .monospaced) : Theme.body }
+
+    private var inTerminal: Bool { isTerminal && !isAnswering }
+    private var isShell: Bool { inTerminal || session.draft.hasPrefix("!") }
     private var isAnswering: Bool { session.prompt?.question != nil }
 
     private var mood: Mood {
         if session.isTalking { return .talking }
-        if session.isBusy { return .thinking }
+        if session.isBusy && !session.isRunningShell { return .thinking }
         return session.messages.last?.speaker == .system ? .worried : .idle
     }
 
@@ -341,7 +337,7 @@ struct DialogueBox: View {
         if isAnswering {
             session.reply(session.draft.trimmed)
         } else if !session.isBusy {
-            session.send(session.draft)
+            session.send(inTerminal ? shownEntry : session.draft)
         } else {
             return
         }

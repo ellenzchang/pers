@@ -5,6 +5,8 @@ enum Theme {
     static let ocean = Color(hex: 0x0A2A6B)
     static let panelTop = Color(hex: 0x0D307A)
     static let panelBottom = Color(hex: 0x04103A)
+    static let terminalTop = Color(hex: 0x1A1A1A)
+    static let terminalBottom = Color(hex: 0x000000)
     static let ice = Color(hex: 0xEAF8FF)
     static let navy = Color(hex: 0x061A4A)
     static let codeBackground = Color(hex: 0x020A1E)
@@ -13,6 +15,7 @@ enum Theme {
     static let cyan = Color(hex: 0x37D7FF)
     static let aqua = Color(hex: 0x7DF5C8)
     static let gold = Color(hex: 0xFFD866)
+    static let green = Color(hex: 0x4BE37A)
     static let pink = Color(hex: 0xFF7AB8)
     static let red = Color(hex: 0xFF4D6D)
 
@@ -86,6 +89,7 @@ struct MorphingPanel: Shape {
 struct Panel: ViewModifier {
     var light = false
     var accent: Color = Theme.cyan
+    var dark = false
     var padding: CGFloat = 14
     var morphing = false
 
@@ -110,7 +114,8 @@ struct Panel: ViewModifier {
             if light {
                 shape.fill(Theme.ice)
             } else {
-                shape.fill(LinearGradient(colors: [Theme.panelTop, Theme.panelBottom], startPoint: .top, endPoint: .bottom))
+                let colors = dark ? [Theme.terminalTop, Theme.terminalBottom] : [Theme.panelTop, Theme.panelBottom]
+                shape.fill(LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom))
                     .opacity(0.94)
             }
             shape.stroke(accent.opacity(light ? 0 : 0.7), lineWidth: 1.5)
@@ -119,8 +124,9 @@ struct Panel: ViewModifier {
 }
 
 extension View {
-    func panel(light: Bool = false, accent: Color = Theme.cyan, padding: CGFloat = 14, morphing: Bool = false) -> some View {
-        modifier(Panel(light: light, accent: accent, padding: padding, morphing: morphing))
+    func panel(light: Bool = false, accent: Color = Theme.cyan, dark: Bool = false, padding: CGFloat = 14,
+               morphing: Bool = false) -> some View {
+        modifier(Panel(light: light, accent: accent, dark: dark, padding: padding, morphing: morphing))
     }
 }
 
@@ -128,12 +134,13 @@ struct NamePlate: View {
     var name: String
     var color: Color = Theme.ice
     var shadowColor: Color = Theme.cyan
+    var textColor: Color = Theme.navy
     var morphing = false
 
     var body: some View {
         Text(name)
             .font(Theme.ui(14, weight: .black))
-            .foregroundStyle(Theme.navy)
+            .foregroundStyle(textColor)
             .padding(.horizontal, 16)
             .padding(.vertical, 3)
             .background {
