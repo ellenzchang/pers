@@ -6,6 +6,8 @@ struct ClaudeQuestApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @StateObject private var store = AppStore()
 
+    static let modelKeys: [KeyEquivalent] = ["h", "j", "k", "l"]
+
     var body: some Scene {
         WindowGroup("Claude Quest") {
             ContentView()
@@ -21,14 +23,14 @@ struct ClaudeQuestApp: App {
                 Button("Close Tab") { store.selected.map(store.close) }.keyboardShortcut("w")
             }
             CommandMenu("Party") {
-                ForEach(Array(ClaudeModel.allCases.enumerated()), id: \.element) { index, model in
+                ForEach(Array(zip(ClaudeModel.allCases, Self.modelKeys)), id: \.0) { model, key in
                     Button("Model: \(model.label)") { store.selected?.model = model }
-                        .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")))
+                        .keyboardShortcut(key)
                 }
                 Divider()
                 Button("Toggle Diff") { store.selected?.toggleDiff() }.keyboardShortcut("d")
-                Button("Next Tab") { cycleTab(by: 1) }.keyboardShortcut("]", modifiers: [.command, .shift])
-                Button("Previous Tab") { cycleTab(by: -1) }.keyboardShortcut("[", modifiers: [.command, .shift])
+                Button("Previous Tab") { cycleTab(by: -1) }.keyboardShortcut("1")
+                Button("Next Tab") { cycleTab(by: 1) }.keyboardShortcut("2")
             }
         }
     }
