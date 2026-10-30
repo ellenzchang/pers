@@ -4,15 +4,16 @@ import AppKit
 struct ContentView: View {
     @EnvironmentObject var store: AppStore
     @StateObject private var scroller = LogScroller()
+    @StateObject private var navigator = Navigator()
 
     var body: some View {
         VStack(spacing: 0) {
             TabBar()
             if let session = store.selected {
                 StatusHUD(session: session)
-                MessageLog(session: session, scroller: scroller)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                DialogueBox(session: session, scroller: scroller)
+                MainPanel(session: session, scroller: scroller, navigator: navigator)
+                    .zIndex(1)
+                DialogueBox(session: session, scroller: scroller, navigator: navigator)
                     .id(session.id)
             }
         }
@@ -20,6 +21,21 @@ struct ContentView: View {
         .ignoresSafeArea(edges: .top)
         .preferredColorScheme(.dark)
         .frame(minWidth: 820, minHeight: 600)
+    }
+}
+
+private struct MainPanel: View {
+    @ObservedObject var session: Session
+    var scroller: LogScroller
+    var navigator: Navigator
+
+    var body: some View {
+        if session.showingDiff {
+            DiffView(session: session, scroller: scroller, navigator: navigator)
+        } else {
+            MessageLog(session: session, scroller: scroller, navigator: navigator)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 }
 

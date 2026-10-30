@@ -26,6 +26,7 @@ struct ClaudeQuestApp: App {
                         .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")))
                 }
                 Divider()
+                Button("Toggle Diff") { store.selected?.toggleDiff() }.keyboardShortcut("d")
                 Button("Next Tab") { cycleTab(by: 1) }.keyboardShortcut("]", modifiers: [.command, .shift])
                 Button("Previous Tab") { cycleTab(by: -1) }.keyboardShortcut("[", modifiers: [.command, .shift])
             }

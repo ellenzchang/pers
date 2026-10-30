@@ -7,17 +7,22 @@ final class LogScroller: ObservableObject {
     // Not published: it changes on every scroll frame and only matters when paging.
     var geometry: ScrollGeometry?
 
-    func page(_ direction: CGFloat) {
+    func page(_ direction: CGFloat, horizontal: Bool = false) {
         guard let geometry else { return }
-        let maxY = max(geometry.contentSize.height - geometry.containerSize.height, 0)
-        let y = min(max(geometry.contentOffset.y + direction * geometry.containerSize.height / 2, 0), maxY)
-        withAnimation(.easeOut(duration: 0.15)) { position.scrollTo(y: y) }
+        let size = horizontal ? geometry.containerSize.width : geometry.containerSize.height
+        let content = horizontal ? geometry.contentSize.width : geometry.contentSize.height
+        let offset = horizontal ? geometry.contentOffset.x : geometry.contentOffset.y
+        let target = min(max(offset + direction * size / 2, 0), max(content - size, 0))
+        withAnimation(.easeOut(duration: 0.15)) {
+            if horizontal { position.scrollTo(x: target) } else { position.scrollTo(y: target) }
+        }
     }
 }
 
 struct MessageLog: View {
     @ObservedObject var session: Session
     @ObservedObject var scroller: LogScroller
+    @ObservedObject var navigator: Navigator
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -43,7 +48,7 @@ struct MessageLog: View {
         }
         .overlay(alignment: .trailing) {
             if let prompt = session.prompt {
-                PermissionBox(session: session, prompt: prompt)
+                PermissionBox(session: session, navigator: navigator, prompt: prompt)
                     .id(prompt.step)
                     .padding(.trailing, 28)
                     .transition(.scale(scale: 0.6, anchor: .trailing).combined(with: .opacity))
@@ -168,12 +173,16 @@ struct MessageRow: View {
 }
 
 struct DialogueBox: View {
+    @EnvironmentObject var store: AppStore
     @ObservedObject var session: Session
     var scroller: LogScroller
+    @ObservedObject var navigator: Navigator
+    @ViewState private var loading = false
     @FocusState private var focused: Bool
     @ViewState private var historyIndex: Int?
     @ViewState private var stashedDraft = ""
     @ViewState private var isTerminal = false
+    @ViewState private var exitArmed = false
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 16) {
@@ -187,13 +196,18 @@ struct DialogueBox: View {
             }
 
             VStack(alignment: .leading, spacing: -8) {
-                NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
-                          textColor: inTerminal ? .black : Theme.navy, morphing: true)
-                    .padding(.horizontal, 18)
-                    .zIndex(1)
+                HStack(spacing: 10) {
+                    NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
+                              textColor: inTerminal ? .black : Theme.navy, morphing: true)
+                    commitCounts
+                    KeyHints(hints: navigationHints)
+                }
+                .padding(.horizontal, 18)
+                .zIndex(1)
                 ZStack(alignment: .topLeading) {
                     if session.draft.isEmpty {
-                        Text(inTerminal ? "Run a shell command…  (⇥ back to Claude)"
+                        Text(exitArmed ? "Press Ctrl-C again to exit"
+                             : inTerminal ? "Run a shell command…  (⇥ back to Claude)"
                                         : "Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell · ⇥ terminal)")
                             .font(Theme.body)
                             .foregroundStyle(Theme.dim)
@@ -210,14 +224,29 @@ struct DialogueBox: View {
                         .foregroundStyle(isShell ? plateColor : Theme.text)
                         .scrollContentBackground(.hidden)
                         .focused($focused)
+                        .background(DraftFormatting(text: session.draft))
+                        .onKeyPress(phases: [.down, .repeat], action: navigate)
+                        .onKeyPress(phases: [.down, .repeat], action: choose)
                         .onKeyPress(.return, phases: .down) { press in
-                            if press.modifiers.contains(.shift) { return .ignored }
+                            if press.modifiers.contains(.shift) || choosing { return .ignored }
                             send()
+                            return .handled
+                        }
+                        .onKeyPress(phases: .down) { press in
+                            guard press.modifiers == .control, press.key == "c" || press.characters == "\u{03}" else {
+                                return .ignored
+                            }
+                            interrupt()
                             return .handled
                         }
                         .onKeyPress(.tab, phases: .down) { _ in
                             guard session.draft.isEmpty, !isAnswering else { return .ignored }
                             isTerminal.toggle()
+                            return .handled
+                        }
+                        .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { press in
+                            guard press.modifiers.contains(.shift) else { return .ignored }
+                            scroller.page(press.key == .leftArrow ? -1 : 1, horizontal: true)
                             return .handled
                         }
                         .onKeyPress(.rightArrow, phases: .down) { _ in
@@ -226,12 +255,17 @@ struct DialogueBox: View {
                             return .handled
                         }
                         .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
+                            guard !choosing else { return .ignored }
                             let up = press.key == .upArrow
                             if press.modifiers.contains(.shift) {
                                 scroller.page(up ? -1 : 1)
                                 return .handled
                             }
                             return up ? olderHistory() : newerHistory()
+                        }
+                        .onChange(of: session.prompt?.step) {
+                            navigator.promptIndex = 0
+                            navigator.typingAnswer = false
                         }
                         .onChange(of: session.draft) {
                             if let historyIndex, shownEntry != session.inputHistory[historyIndex] { self.historyIndex = nil }
@@ -244,7 +278,7 @@ struct DialogueBox: View {
                 .animation(.easeOut(duration: 0.15), value: isShell)
             }
 
-            CommandMenu(session: session, canSend: !session.draft.trimmed.isEmpty, send: send)
+            CommandMenu(entries: menuEntries, highlighted: navigator.active && navigationZone == .menu ? navigator.menuIndex : nil)
         }
         .padding(.horizontal, 18)
         .padding(.bottom, 16)
@@ -252,9 +286,122 @@ struct DialogueBox: View {
         .background(LinearGradient(colors: [.clear, Theme.deep.opacity(0.7)], startPoint: .top, endPoint: .bottom))
         .onAppear { focused = true }
         .onTapGesture { if session.isTalking { session.skipTyping() } }
+        .sheet(isPresented: $loading) {
+            LoadData(session: session)
+                .environmentObject(store)
+        }
+    }
+
+    private var navigationHints: [(key: String, action: String)] {
+        let diffToggle = ("⌘D", session.showingDiff ? "close diff" : "diff")
+        guard navigator.active else {
+            if isAnswering && navigator.typingAnswer { return [("ESC", "back to options"), diffToggle] }
+            let hints = [("ESC", "navigate"), diffToggle]
+            return choosing ? [("↑ ↓", "choose"), ("⏎", "select")] + hints : hints
+        }
+        let move = navigationZone == .diff ? ("j k", "line") : ("j k", "item")
+        var hints = [move, ("g G", navigationZone == .diff ? "top/end" : "first/last")]
+        if session.showingDiff { hints += [("h l", "diff/menu"), ("J K", "file")] }
+        return hints + [("⏎", navigationZone == .diff ? "quote" : "select"), diffToggle, ("ESC i", "type")]
+    }
+
+    private var navigationZone: Navigator.Zone { session.showingDiff ? navigator.zone : .menu }
+
+    private var menuEntries: [MenuEntry] {
+        var entries: [MenuEntry] = []
+        if !session.isBusy || session.prompt?.question != nil {
+            entries.append(MenuEntry(title: "SEND", index: 0, color: session.draft.trimmed.isEmpty ? Theme.dim : Theme.ice, action: send))
+        }
+        if session.isBusy {
+            entries.append(MenuEntry(title: "STOP", index: session.prompt?.question != nil ? 1 : 0, color: Theme.red, shortcut: ".", action: session.stop))
+        }
+        if session.isTalking {
+            entries.append(MenuEntry(title: "SKIP", index: 1, action: session.skipTyping))
+        }
+        entries.append(MenuEntry(title: "NEW GAME", index: 2, help: "Start a fresh conversation in this tab", action: session.reset))
+        if !session.isBusy {
+            entries.append(MenuEntry(title: "LOAD DATA", index: 3, help: "Continue an earlier Claude session in this tab") { loading = true })
+        }
+        return entries
+    }
+
+    /// While the options of a prompt are focused they own the keyboard, so the input field neither types nor browses history.
+    private var choosing: Bool { session.prompt != nil && !navigator.typingAnswer && !navigator.active }
+
+    /// Arrow keys arrive flagged as numpad/function presses, so only real shortcut modifiers count; Shift+arrow is left for paging.
+    private func isPlain(_ press: KeyPress) -> Bool {
+        let isArrow = [.upArrow, .downArrow, .leftArrow, .rightArrow].contains(press.key)
+        return press.modifiers.isDisjoint(with: [.command, .control, .option]) && !(isArrow && press.modifiers.contains(.shift))
+    }
+
+    private func choose(_ press: KeyPress) -> KeyPress.Result {
+        guard choosing, let prompt = session.prompt, press.key != .escape, isPlain(press) else { return .ignored }
+        let entries = promptEntries(prompt, session: session, navigator: navigator)
+        let index = min(navigator.promptIndex, entries.count - 1)
+        switch press.key {
+        case .upArrow: navigator.promptIndex = max(index - 1, 0)
+        case .downArrow: navigator.promptIndex = min(index + 1, entries.count - 1)
+        case .return: entries[index].action()
+        default: break
+        }
+        return .handled
+    }
+
+    /// Esc toggles a vim-like mode where keys move a cursor over the diff and the command menu instead of typing.
+    private func navigate(_ press: KeyPress) -> KeyPress.Result {
+        guard navigator.active else {
+            guard press.key == .escape, press.modifiers.isEmpty else { return .ignored }
+            if isAnswering && navigator.typingAnswer {
+                navigator.typingAnswer = false
+                return .handled
+            }
+            navigator.zone = session.showingDiff ? .diff : .menu
+            navigator.active = true
+            return .handled
+        }
+        guard isPlain(press) else { return .ignored }
+        let entries = menuEntries
+        let diff = session.diff
+        let inDiff = navigationZone == .diff
+        switch (press.key, press.characters) {
+        case (.escape, _), (_, "i"): navigator.active = false
+        case (.downArrow, _), (_, "j"):
+            if inDiff { navigator.moveLine(by: 1, in: diff) } else { navigator.moveMenu(by: 1, count: entries.count) }
+        case (.upArrow, _), (_, "k"):
+            if inDiff { navigator.moveLine(by: -1, in: diff) } else { navigator.moveMenu(by: -1, count: entries.count) }
+        case (.leftArrow, _), (_, "h"): if session.showingDiff { navigator.zone = .diff }
+        case (.rightArrow, _), (_, "l"): navigator.zone = .menu
+        case (_, "g"): if inDiff { navigator.setLine(0, in: diff) } else { navigator.menuIndex = 0 }
+        case (_, "G"): if inDiff { navigator.setLine(.max, in: diff) } else { navigator.menuIndex = entries.count - 1 }
+        case (_, "J"): navigator.moveFile(by: 1, in: diff)
+        case (_, "K"): navigator.moveFile(by: -1, in: diff)
+        case (.return, _):
+            if inDiff, let file = navigator.file(in: diff) {
+                session.quote(String(AttributedString(ansi: file.lines[navigator.line(in: diff)]).characters))
+            } else if !entries.isEmpty {
+                entries[min(navigator.menuIndex, entries.count - 1)].action()
+            }
+        default: break
+        }
+        return .handled
+    }
+
+    @ViewBuilder
+    private var commitCounts: some View {
+        if let git = session.git, git.unstaged > 0 || git.ahead > 0 || git.behind > 0 {
+            HStack(spacing: 8) {
+                if git.unstaged > 0 { Text("!\(git.unstaged)") }
+                if git.ahead > 0 { Text("↑\(git.ahead)") }
+                if git.behind > 0 { Text("↓\(git.behind)") }
+            }
+            .font(Theme.ui(12, weight: .bold))
+            .foregroundStyle(inTerminal ? Theme.green : Theme.cyan)
+            .allowsHitTesting(false)
+        }
     }
 
     private var heading: String {
+        if navigator.active { return "NAVIGATE" }
         if isAnswering { return "YOUR ANSWER" }
         if session.isBusy && !session.isRunningShell { return "CLAUDE IS THINKING…" }
         if let historyIndex {
@@ -332,6 +479,24 @@ struct DialogueBox: View {
         return session.messages.last?.speaker == .system ? .worried : .idle
     }
 
+    private func interrupt() {
+        if session.isBusy {
+            session.stop()
+        } else if !session.draft.isEmpty {
+            session.draft = ""
+        } else if exitArmed {
+            NSApplication.shared.terminate(nil)
+        } else {
+            exitArmed = true
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                exitArmed = false
+            }
+            return
+        }
+        exitArmed = false
+    }
+
     private func send() {
         guard !session.draft.trimmed.isEmpty else { return }
         if isAnswering {
@@ -345,38 +510,78 @@ struct DialogueBox: View {
     }
 }
 
-private struct CommandMenu: View {
-    @EnvironmentObject var store: AppStore
-    @ObservedObject var session: Session
-    var canSend: Bool
-    var send: () -> Void
-    @ViewState private var loading = false
+private struct KeyHints: View {
+    var hints: [(key: String, action: String)]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(hints, id: \.key) { hint in
+                HStack(spacing: 4) {
+                    Text(hint.key)
+                        .foregroundStyle(Theme.navy)
+                        .padding(.horizontal, 5)
+                        .background(Theme.ice, in: RoundedRectangle(cornerRadius: 3))
+                    Text(hint.action).foregroundStyle(Theme.dim)
+                }
+            }
+        }
+        .font(Theme.ui(11, weight: .bold))
+        .allowsHitTesting(false)
+    }
+}
+
+private struct MenuEntry: Identifiable {
+    var title: String
+    var index: Int
+    var color: Color = Theme.ice
+    var shortcut: KeyEquivalent?
+    var help = ""
+    var action: () -> Void
+    var id: String { title }
+}
+
+private struct MenuList: View {
+    var entries: [MenuEntry]
+    var highlighted: Int?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !session.isBusy || session.prompt?.question != nil {
-                MenuItem(title: "SEND", index: 0, color: canSend ? Theme.ice : Theme.dim, action: send)
+            ForEach(Array(entries.enumerated()), id: \.element.id) { position, entry in
+                MenuItem(title: entry.title, index: entry.index, color: entry.color, shortcut: entry.shortcut,
+                         highlighted: position == highlighted.map { min($0, entries.count - 1) }, action: entry.action)
+                    .help(entry.help)
             }
-            if session.isBusy {
-                MenuItem(title: "STOP", index: session.prompt?.question != nil ? 1 : 0, color: Theme.red, shortcut: ".", action: session.stop)
-            }
-            if session.isTalking {
-                MenuItem(title: "SKIP", index: 1, action: session.skipTyping)
-            }
-            MenuItem(title: "NEW GAME", index: 2, action: session.reset)
-                .help("Start a fresh conversation in this tab")
-            if !session.isBusy {
-                MenuItem(title: "LOAD DATA", index: 3) { loading = true }
-                    .help("Continue an earlier Claude session in this tab")
-            }
-        }
-        .frame(width: 150, alignment: .leading)
-        .frame(minHeight: 128, alignment: .center)
-        .sheet(isPresented: $loading) {
-            LoadData(session: session)
-                .environmentObject(store)
         }
     }
+}
+
+private struct CommandMenu: View {
+    var entries: [MenuEntry]
+    var highlighted: Int?
+
+    var body: some View {
+        MenuList(entries: entries, highlighted: highlighted)
+            .frame(width: 150, alignment: .leading)
+            .frame(minHeight: 128, alignment: .center)
+    }
+}
+
+@MainActor
+private func promptEntries(_ prompt: PermissionPrompt, session: Session, navigator: Navigator) -> [MenuEntry] {
+    if let question = prompt.question {
+        let options = question.options.enumerated().map { index, option in
+            MenuEntry(title: option.label.uppercased(), index: index, help: option.description) { session.reply(option.label) }
+        }
+        return options + [MenuEntry(title: "TYPE ANSWER", index: options.count, color: Theme.aqua,
+                                    help: "Write your own answer in the input field") { navigator.typingAnswer = true }]
+    }
+    var entries = [MenuEntry(title: "ALLOW", index: 0) { session.answer(prompt, allow: true) }]
+    if !prompt.suggestions.isEmpty {
+        entries.append(MenuEntry(title: "ALWAYS", index: 1, color: Theme.aqua, help: "Allow and remember this rule") {
+            session.answer(prompt, allow: true, always: true)
+        })
+    }
+    return entries + [MenuEntry(title: "DENY", index: 2, color: Theme.red) { session.answer(prompt, allow: false) }]
 }
 
 private struct LoadData: View {
@@ -468,7 +673,12 @@ private struct SaveRow: View {
 
 private struct PermissionBox: View {
     @ObservedObject var session: Session
+    @ObservedObject var navigator: Navigator
     var prompt: PermissionPrompt
+
+    private var highlighted: Int? {
+        !navigator.typingAnswer && !navigator.active ? navigator.promptIndex : nil
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: -8) {
@@ -501,15 +711,7 @@ private struct PermissionBox: View {
             .font(Theme.body)
             .foregroundStyle(Theme.text)
             .fixedSize(horizontal: false, vertical: true)
-        VStack(alignment: .leading, spacing: 6) {
-            ForEach(Array(question.options.enumerated()), id: \.offset) { index, option in
-                MenuItem(title: option.label.uppercased(), index: index) { session.reply(option.label) }
-                    .help(option.description)
-            }
-        }
-        Text("…or type your own answer below")
-            .font(Theme.ui(12, weight: .bold))
-            .foregroundStyle(Theme.dim)
+        MenuList(entries: promptEntries(prompt, session: session, navigator: navigator), highlighted: highlighted)
     }
 
     @ViewBuilder
@@ -522,14 +724,7 @@ private struct PermissionBox: View {
                 .truncationMode(.middle)
                 .textSelection(.enabled)
         }
-        VStack(alignment: .leading, spacing: 6) {
-            MenuItem(title: "ALLOW", index: 0) { session.answer(prompt, allow: true) }
-            if !prompt.suggestions.isEmpty {
-                MenuItem(title: "ALWAYS", index: 1, color: Theme.aqua) { session.answer(prompt, allow: true, always: true) }
-                    .help("Allow and remember this rule")
-            }
-            MenuItem(title: "DENY", index: 2, color: Theme.red) { session.answer(prompt, allow: false) }
-        }
+        MenuList(entries: promptEntries(prompt, session: session, navigator: navigator), highlighted: highlighted)
     }
 }
 
@@ -539,8 +734,10 @@ private struct MenuItem: View {
     var index: Int
     var color: Color = Theme.ice
     var shortcut: KeyEquivalent?
+    var highlighted = false
     var action: () -> Void
-    @ViewState private var isHovered = false
+    @ViewState private var hovered = false
+    private var isHovered: Bool { hovered || highlighted }
 
     var body: some View {
         Button(action: action) {
@@ -555,7 +752,7 @@ private struct MenuItem: View {
         .buttonStyle(.plain)
         .offset(x: CGFloat(index) * 10 + (isHovered ? 8 : 0))
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovered)
-        .onHover { isHovered = $0 }
+        .onHover { hovered = $0 }
         .modifier(OptionalShortcut(key: shortcut))
     }
 }
@@ -564,5 +761,76 @@ private struct OptionalShortcut: ViewModifier {
     var key: KeyEquivalent?
     func body(content: Content) -> some View {
         if let key { content.keyboardShortcut(key, modifiers: .command) } else { content }
+    }
+}
+
+/// SwiftUI's TextEditor has no switch for smart quotes, so reach the NSTextViews in the window.
+private struct DraftFormatting: NSViewRepresentable {
+    // Unused, but changing it makes SwiftUI call updateNSView when the draft is set programmatically.
+    var text: String
+
+    func makeNSView(context: Context) -> NSView { Probe() }
+    func updateNSView(_ view: NSView, context: Context) { (view as? Probe)?.apply() }
+
+    private final class Probe: NSView {
+        private static let styled = NSAttributedString.Key("draftStyled")
+        private static let patterns: [(regex: NSRegularExpression, code: Bool, bold: Bool)] = [
+            ("^#+ .*", false, true), ("\\*\\*[^*\\n]+\\*\\*", false, true),
+            ("`[^`\\n]+`", true, false), ("```[\\s\\S]*?(```|$)", true, false),
+        ].map { (try! NSRegularExpression(pattern: $0.0, options: .anchorsMatchLines), $0.1, $0.2) }
+
+        private var observer: NSObjectProtocol?
+        private var base: (font: NSFont, color: NSColor)?
+
+        deinit { observer.map(NotificationCenter.default.removeObserver) }
+
+        override func viewDidMoveToWindow() {
+            observer = NotificationCenter.default.addObserver(forName: NSText.didChangeNotification, object: nil, queue: .main) { [weak self] note in
+                guard let view = note.object as? NSTextView, view.window === self?.window else { return }
+                self?.format(view)
+            }
+            apply()
+        }
+
+        func apply() {
+            DispatchQueue.main.async { [weak self] in
+                self?.window?.contentView?.textViews.forEach {
+                    $0.isAutomaticQuoteSubstitutionEnabled = false
+                    self?.format($0)
+                }
+            }
+        }
+
+        private func format(_ view: NSTextView) {
+            guard let storage = view.textStorage, storage.length > 0 else { return }
+            let all = NSRange(location: 0, length: storage.length)
+            storage.enumerateAttribute(Self.styled, in: all) { value, range, stop in
+                guard value == nil, let font = storage.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont,
+                      let color = storage.attribute(.foregroundColor, at: range.location, effectiveRange: nil) as? NSColor else { return }
+                base = (font, color)
+                stop.pointee = true
+            }
+            guard let base else { return }
+            let code = NSFont.monospacedSystemFont(ofSize: base.font.pointSize - 2, weight: .regular)
+            let bold = NSFontManager.shared.convert(base.font, toHaveTrait: .boldFontMask)
+            storage.beginEditing()
+            storage.removeAttribute(Self.styled, range: all)
+            storage.addAttributes([.font: base.font, .foregroundColor: base.color], range: all)
+            for pattern in Self.patterns {
+                for match in pattern.regex.matches(in: storage.string, range: all) {
+                    var attributes: [NSAttributedString.Key: Any] = [Self.styled: true]
+                    if pattern.bold { attributes[.font] = bold }
+                    if pattern.code { attributes[.font] = code; attributes[.foregroundColor] = NSColor(Theme.cyan) }
+                    storage.addAttributes(attributes, range: match.range)
+                }
+            }
+            storage.endEditing()
+        }
+    }
+}
+
+private extension NSView {
+    var textViews: [NSTextView] {
+        (self as? NSTextView).map { [$0] } ?? subviews.flatMap(\.textViews)
     }
 }

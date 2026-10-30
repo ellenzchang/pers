@@ -16,6 +16,8 @@ final class Session: ObservableObject, Identifiable {
     @Published var liveModel: String?
     @Published private(set) var outfit = Int.random(in: 0..<1000)
     @Published var git: GitInfo?
+    @Published var showingDiff = false
+    @Published private(set) var diff: [FileDiff] = []
     @Published private(set) var isBusy = false
     @Published private(set) var isRunningShell = false
     @Published private(set) var typingId: UUID?
@@ -70,6 +72,21 @@ final class Session: ObservableObject, Identifiable {
             let info = Git.info(at: directory)
             await MainActor.run { self.git = info }
         }
+    }
+
+    func toggleDiff() {
+        showingDiff.toggle()
+        guard showingDiff else { return }
+        let directory = directory
+        Task.detached {
+            let diff = await Git.diff(at: directory)
+            await MainActor.run { self.diff = diff }
+        }
+    }
+
+    func quote(_ code: String) {
+        guard !code.trimmed.isEmpty else { return }
+        draft += (draft.isEmpty || draft.hasSuffix("\n") ? "" : "\n") + "`\(code.trimmed)`\n"
     }
 
     func reset() {
@@ -202,18 +219,44 @@ final class Session: ObservableObject, Identifiable {
         }
         self.process = process
 
-        Task {
-            let data = await Task.detached { out.fileHandleForReading.readDataToEndOfFile() }.value
-            process.waitUntilExit()
-            var output = String(decoding: data, as: UTF8.self)
-            if let marker = output.lastIndex(of: "\u{1E}") {
-                let cwd = String(output[output.index(after: marker)...])
-                output = String(output[..<marker])
-                if cwd != directory { directory = cwd }
+        let chunks = AsyncStream<Data> { continuation in
+            out.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    handle.readabilityHandler = nil
+                    continuation.finish()
+                } else {
+                    continuation.yield(data)
+                }
             }
-            if !output.trimmed.isEmpty { messages.append(ChatMessage(speaker: .shell, text: output.trimmed)) }
+        }
+
+        Task {
+            var data = Data()
+            var messageId: UUID?
+            for await chunk in chunks {
+                data.append(chunk)
+                let shown = Self.shellOutput(data).output.trimmed
+                guard !shown.isEmpty else { continue }
+                if let id = messageId, let index = messages.firstIndex(where: { $0.id == id }) {
+                    messages[index].text = shown
+                } else {
+                    let message = ChatMessage(speaker: .shell, text: shown)
+                    messageId = message.id
+                    messages.append(message)
+                }
+            }
+            process.waitUntilExit()
+            if let cwd = Self.shellOutput(data).cwd, cwd != directory { directory = cwd }
             finish(error: process.terminationReason == .uncaughtSignal ? "Interrupted." : nil)
         }
+    }
+
+    /// Splits off the trailing directory report so it never shows, even while the output is still streaming.
+    private static func shellOutput(_ data: Data) -> (output: String, cwd: String?) {
+        let text = String(decoding: data, as: UTF8.self)
+        guard let marker = text.lastIndex(of: "\u{1E}") else { return (text, nil) }
+        return (String(text[..<marker]), String(text[text.index(after: marker)...]))
     }
 
     /// Finder-launched apps get a minimal PATH, and login shells skip .zshrc where installers usually add

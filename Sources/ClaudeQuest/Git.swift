@@ -7,9 +7,17 @@ struct Worktree: Identifiable, Hashable {
     var name: String { (path as NSString).lastPathComponent }
 }
 
+struct FileDiff: Identifiable, Equatable {
+    var path: String
+    var output: String
+    var id: String { path }
+    var lines: [Substring] { output.split(separator: "\n", omittingEmptySubsequences: false) }
+}
+
 struct GitInfo: Equatable {
     var branch: String
     var changedFiles: Int
+    var unstaged: Int
     var ahead: Int
     var behind: Int
     var root: String
@@ -25,11 +33,31 @@ enum Git {
         return GitInfo(
             branch: run(["branch", "--show-current"], in: directory)?.trimmed.nilIfEmpty ?? "detached",
             changedFiles: max(lines.count - 1, 0),
+            unstaged: lines.dropFirst().filter { $0.dropFirst().first != " " }.count,
             ahead: count(of: "ahead", in: header),
             behind: count(of: "behind", in: header),
             root: root,
             worktrees: worktrees(at: directory)
         )
+    }
+
+    static func diff(at directory: String) async -> [FileDiff] {
+        let paths = (run(["diff", "HEAD", "--name-only", "-z"], in: directory) ?? "")
+            .split(separator: "\0").map(String.init)
+        let pager = run(["config", "core.pager"], in: directory)?.trimmed ?? ""
+        return await withTaskGroup(of: (Int, FileDiff).self) { group in
+            for (index, path) in paths.enumerated() {
+                group.addTask { (index, FileDiff(path: path, output: fileDiff(path, pager: pager, in: directory))) }
+            }
+            var results: [(Int, FileDiff)] = []
+            for await result in group { results.append(result) }
+            return results.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+
+    private static func fileDiff(_ path: String, pager: String, in directory: String) -> String {
+        let script = "export TERM=xterm-256color; git diff HEAD --color=always -- \"$1\"" + (pager.isEmpty ? "" : " | \(pager)")
+        return execute(["-lc", script, "diff", path], in: directory, executable: "/bin/zsh").stdout
     }
 
     static func worktrees(at directory: String) -> [Worktree] {
@@ -67,9 +95,9 @@ enum Git {
         return result.status == 0 ? result.stdout : nil
     }
 
-    private static func execute(_ args: [String], in directory: String) -> (status: Int32, stdout: String, stderr: String) {
+    private static func execute(_ args: [String], in directory: String, executable: String = "/usr/bin/git") -> (status: Int32, stdout: String, stderr: String) {
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = args
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         let out = Pipe(), err = Pipe()
