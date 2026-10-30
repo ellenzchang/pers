@@ -27,6 +27,7 @@ final class Session: ObservableObject, Identifiable {
     private var process: Process?
     private var input: FileHandle?
     private var typer: Timer?
+    private var fix: String?
 
     init(directory: String, model: ClaudeModel = .sonnet, mode: PermissionMode = .acceptEdits) {
         id = UUID()
@@ -128,6 +129,7 @@ final class Session: ObservableObject, Identifiable {
 
     func stop() {
         process?.terminate()
+        resolveFix("Cancel")
     }
 
     func skipTyping() {
@@ -146,7 +148,8 @@ final class Session: ObservableObject, Identifiable {
         isBusy = true
         if text.hasPrefix("!") || text.hasPrefix(Self.terminalMarker) {
             isRunningShell = true
-            return runShell(String(text.dropFirst()))
+            let command = String(text.dropFirst())
+            return command.trimmed == "fuck" ? fixLastCommand() : runShell(command)
         }
 
         var args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
@@ -202,14 +205,10 @@ final class Session: ObservableObject, Identifiable {
     /// shell's final directory so a `cd` carries over to the tab. Interactive (`-i`) so .zshrc's aliases,
     /// functions and PATH are available, like in the user's own terminal.
     private func runShell(_ command: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-ilc", "\(command)\nprintf '\\036%s' \"$PWD\""]
-        process.currentDirectoryURL = URL(fileURLWithPath: directory)
+        let process = shellProcess("\(command)\nprintf '\\036%s' \"$PWD\"")
         let out = Pipe()
         process.standardOutput = out
         process.standardError = out
-        process.standardInput = FileHandle.nullDevice
 
         do {
             try process.run()
@@ -252,6 +251,61 @@ final class Session: ObservableObject, Identifiable {
         }
     }
 
+    private func shellProcess(_ script: String, _ args: [String] = []) -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        process.arguments = ["-ilc", script] + args
+        process.currentDirectoryURL = URL(fileURLWithPath: directory)
+        process.standardInput = FileHandle.nullDevice
+        return process
+    }
+
+    /// Every terminal command runs in a fresh shell with no history, so thefuck gets the tab's previous command
+    /// through TF_HISTORY instead of `fc`. Its own confirmation needs a tty, so the correction is confirmed with a prompt.
+    private func fixLastCommand() {
+        let isCommand = { (text: String) in text.hasPrefix("!") || text.hasPrefix(Self.terminalMarker) }
+        guard let previous = messages.dropLast().last(where: { $0.speaker == .user && isCommand($0.text) && $0.text.dropFirst().trimmed != "fuck" })?.text.dropFirst() else {
+            return finish(error: "No fucks given.")
+        }
+        let process = shellProcess("""
+            TF_SHELL=zsh TF_ALIAS=fuck TF_SHELL_ALIASES=$(alias) TF_HISTORY=$1 \
+            THEFUCK_REQUIRE_CONFIRMATION=false PYTHONIOENCODING=utf-8 thefuck THEFUCK_ARGUMENT_PLACEHOLDER
+            """, ["fuck", String(previous)])
+        let out = Pipe()
+        process.standardOutput = out
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            finish(error: error.localizedDescription)
+            return
+        }
+        self.process = process
+
+        Task {
+            var correction = ""
+            do {
+                for try await line in out.fileHandleForReading.bytes.lines where !line.trimmed.isEmpty { correction = line }
+            } catch {}
+            process.waitUntilExit()
+            if process.terminationReason == .uncaughtSignal { return finish(error: "Interrupted.") }
+            guard !correction.isEmpty else { return finish(error: "No fucks given.") }
+            fix = correction
+            let options = ["Run", "Cancel"].map { ["label": $0] }
+            prompt = PermissionPrompt(requestId: "fuck", tool: "thefuck", detail: "", input: [:], suggestions: [],
+                                      questions: [.init(json: ["question": correction, "header": "Fix", "options": options])])
+        }
+    }
+
+    /// "Run" and "Cancel" are the offered options; any other text typed as the answer is run as the command instead.
+    private func resolveFix(_ answer: String) {
+        guard let fix else { return }
+        self.fix = nil
+        finish(error: nil)
+        if answer != "Cancel" { send(Self.terminalMarker + (answer == "Run" ? fix : answer)) }
+    }
+
     /// Splits off the trailing directory report so it never shows, even while the output is still streaming.
     private static func shellOutput(_ data: Data) -> (output: String, cwd: String?) {
         let text = String(decoding: data, as: UTF8.self)
@@ -290,6 +344,7 @@ final class Session: ObservableObject, Identifiable {
     /// Answers the open AskUserQuestion step; the CLI gets every answer at once after the last question.
     func reply(_ text: String) {
         guard var prompt, let question = prompt.question else { return }
+        if fix != nil { return resolveFix(text) }
         messages.append(ChatMessage(speaker: .user, text: text))
         prompt.answers[question.text] = text
         guard prompt.question == nil else { return self.prompt = prompt }
