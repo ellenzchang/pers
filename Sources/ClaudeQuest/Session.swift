@@ -23,6 +23,7 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var typingId: UUID?
     @Published private(set) var revealed = 0
     @Published private(set) var prompt: PermissionPrompt?
+    @Published private(set) var resets = 0
 
     private var process: Process?
     private var input: FileHandle?
@@ -61,6 +62,7 @@ final class Session: ObservableObject, Identifiable {
     }
 
     var title: String { (directory as NSString).lastPathComponent }
+    var logIdentity: String { "\(id)-\(resets)" }
     var isTalking: Bool { typingId != nil }
 
     func visibleText(of message: ChatMessage) -> String {
@@ -94,6 +96,7 @@ final class Session: ObservableObject, Identifiable {
         stop()
         messages = []
         cost = 0
+        resets += 1
         startNewSession()
     }
 

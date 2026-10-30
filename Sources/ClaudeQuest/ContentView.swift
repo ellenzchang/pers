@@ -34,6 +34,7 @@ private struct MainPanel: View {
             DiffView(session: session, scroller: scroller, navigator: navigator)
         } else {
             MessageLog(session: session, scroller: scroller, navigator: navigator)
+                .id(session.logIdentity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

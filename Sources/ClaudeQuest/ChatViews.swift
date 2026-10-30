@@ -228,7 +228,7 @@ struct DialogueBox: View {
                         .onKeyPress(phases: [.down, .repeat], action: navigate)
                         .onKeyPress(phases: [.down, .repeat], action: choose)
                         .onKeyPress(.return, phases: .down) { press in
-                            if press.modifiers.contains(.shift) || choosing { return .ignored }
+                            if press.modifiers.contains(.shift) || choosing || navigator.active { return .ignored }
                             send()
                             return .handled
                         }
@@ -318,7 +318,7 @@ struct DialogueBox: View {
         if session.isTalking {
             entries.append(MenuEntry(title: "SKIP", index: 1, action: session.skipTyping))
         }
-        entries.append(MenuEntry(title: "NEW GAME", index: 2, help: "Start a fresh conversation in this tab", action: session.reset))
+        entries.append(MenuEntry(title: "RESET", index: 2, help: "Start a fresh conversation in this tab", action: session.reset))
         if !session.isBusy {
             entries.append(MenuEntry(title: "LOAD DATA", index: 3, help: "Continue an earlier Claude session in this tab") { loading = true })
         }
