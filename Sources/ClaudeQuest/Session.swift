@@ -12,6 +12,7 @@ final class Session: ObservableObject, Identifiable {
     @Published var cost: Double
     @Published var messages: [ChatMessage]
     @Published var draft = ""
+    @Published private(set) var inputHistory: [String] = []
     @Published var liveModel: String?
     @Published private(set) var outfit = Int.random(in: 0..<1000)
     @Published var git: GitInfo?
@@ -47,6 +48,7 @@ final class Session: ObservableObject, Identifiable {
         cost = snapshot.cost
         messages = snapshot.messages
         draft = snapshot.draft ?? ""
+        inputHistory = snapshot.inputHistory ?? []
         outfit = snapshot.outfit ?? outfit
         refreshGit()
         checkTranscript()
@@ -54,7 +56,7 @@ final class Session: ObservableObject, Identifiable {
 
     var snapshot: SessionSnapshot {
         SessionSnapshot(id: id, directory: directory, sessionId: sessionId, model: model, mode: mode,
-                        effort: effort, cost: cost, messages: messages, outfit: outfit, draft: draft)
+                        effort: effort, cost: cost, messages: messages, outfit: outfit, draft: draft, inputHistory: inputHistory)
     }
 
     var title: String { (directory as NSString).lastPathComponent }
@@ -116,6 +118,7 @@ final class Session: ObservableObject, Identifiable {
     func send(_ text: String) {
         guard !isBusy, !text.trimmed.isEmpty else { return }
         checkTranscript()
+        if inputHistory.last != text { inputHistory = Array((inputHistory + [text]).suffix(100)) }
         messages.append(ChatMessage(speaker: .user, text: text))
         isBusy = true
         showingRecap = false

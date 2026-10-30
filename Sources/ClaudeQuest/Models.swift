@@ -49,6 +49,7 @@ struct SessionSnapshot: Codable {
     var messages: [ChatMessage]
     var outfit: Int?
     var draft: String?
+    var inputHistory: [String]?
 }
 
 struct PermissionPrompt {

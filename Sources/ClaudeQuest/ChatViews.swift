@@ -1,7 +1,23 @@
 import SwiftUI
 
+/// Lets the input field page the message log, since the log never has keyboard focus.
+@MainActor
+final class LogScroller: ObservableObject {
+    @Published var position = ScrollPosition(edge: .bottom)
+    // Not published: it changes on every scroll frame and only matters when paging.
+    var geometry: ScrollGeometry?
+
+    func page(_ direction: CGFloat) {
+        guard let geometry else { return }
+        let maxY = max(geometry.contentSize.height - geometry.containerSize.height, 0)
+        let y = min(max(geometry.contentOffset.y + direction * geometry.containerSize.height / 2, 0), maxY)
+        withAnimation(.easeOut(duration: 0.15)) { position.scrollTo(y: y) }
+    }
+}
+
 struct MessageLog: View {
     @ObservedObject var session: Session
+    @ObservedObject var scroller: LogScroller
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -19,6 +35,8 @@ struct MessageLog: View {
                 .frame(maxWidth: 980)
                 .frame(maxWidth: .infinity)
             }
+            .scrollPosition($scroller.position)
+            .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { scroller.geometry = $1 }
             .onChange(of: session.messages.count) { scrollDown(proxy) }
             .onChange(of: session.revealed) { scrollDown(proxy, animated: false) }
             .onAppear { scrollDown(proxy, animated: false) }
@@ -191,7 +209,10 @@ struct MessageRow: View {
 
 struct DialogueBox: View {
     @ObservedObject var session: Session
+    var scroller: LogScroller
     @FocusState private var focused: Bool
+    @ViewState private var historyIndex: Int?
+    @ViewState private var stashedDraft = ""
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 16) {
@@ -205,7 +226,7 @@ struct DialogueBox: View {
             }
 
             VStack(alignment: .leading, spacing: -8) {
-                NamePlate(name: isAnswering ? "YOUR ANSWER" : session.isBusy ? "CLAUDE IS THINKING…" : isShell ? "SHELL COMMAND" : "WHAT WILL YOU DO?",
+                NamePlate(name: heading,
                           color: isShell ? Theme.gold : Theme.cyan, shadowColor: Theme.ocean, morphing: true)
                     .padding(.horizontal, 18)
                     .zIndex(1)
@@ -225,6 +246,17 @@ struct DialogueBox: View {
                             if press.modifiers.contains(.shift) { return .ignored }
                             send()
                             return .handled
+                        }
+                        .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
+                            let up = press.key == .upArrow
+                            if press.modifiers.contains(.shift) {
+                                scroller.page(up ? -1 : 1)
+                                return .handled
+                            }
+                            return up ? olderHistory() : newerHistory()
+                        }
+                        .onChange(of: session.draft) {
+                            if let historyIndex, session.draft != session.inputHistory[historyIndex] { self.historyIndex = nil }
                         }
                 }
                 .padding(.top, 8)
@@ -255,6 +287,44 @@ struct DialogueBox: View {
         .disabled(session.messages.isEmpty || session.isBusy)
         .opacity(session.messages.isEmpty || session.isBusy ? 0.4 : 1)
         .help("Recap this session so far")
+    }
+
+    private var heading: String {
+        if isAnswering { return "YOUR ANSWER" }
+        if session.isBusy { return "CLAUDE IS THINKING…" }
+        if let historyIndex { return "HISTORY \(historyIndex + 1)/\(session.inputHistory.count)" }
+        return isShell ? "SHELL COMMAND" : "WHAT WILL YOU DO?"
+    }
+
+    /// Arrow keys only recall history while they'd have nowhere to move the cursor: a single-line draft,
+    /// or an untouched recalled entry.
+    private var canBrowseHistory: Bool {
+        historyIndex != nil || !session.draft.contains("\n")
+    }
+
+    private func olderHistory() -> KeyPress.Result {
+        let history = session.inputHistory
+        guard canBrowseHistory, !history.isEmpty else { return .ignored }
+        if let historyIndex {
+            self.historyIndex = max(historyIndex - 1, 0)
+        } else {
+            stashedDraft = session.draft
+            historyIndex = history.count - 1
+        }
+        session.draft = history[historyIndex!]
+        return .handled
+    }
+
+    private func newerHistory() -> KeyPress.Result {
+        guard let historyIndex else { return .ignored }
+        if historyIndex < session.inputHistory.count - 1 {
+            self.historyIndex = historyIndex + 1
+            session.draft = session.inputHistory[historyIndex + 1]
+        } else {
+            self.historyIndex = nil
+            session.draft = stashedDraft
+        }
+        return .handled
     }
 
     private var isShell: Bool { session.draft.hasPrefix("!") }

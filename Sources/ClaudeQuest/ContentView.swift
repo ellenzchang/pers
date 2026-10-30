@@ -3,15 +3,16 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var store: AppStore
+    @StateObject private var scroller = LogScroller()
 
     var body: some View {
         VStack(spacing: 0) {
             TabBar()
             if let session = store.selected {
                 StatusHUD(session: session)
-                MessageLog(session: session)
+                MessageLog(session: session, scroller: scroller)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                DialogueBox(session: session)
+                DialogueBox(session: session, scroller: scroller)
                     .id(session.id)
             }
         }
