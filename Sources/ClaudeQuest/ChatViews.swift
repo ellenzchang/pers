@@ -30,7 +30,8 @@ struct MessageLog: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     if session.messages.isEmpty { EmptyQuest() }
                     ForEach(session.messages) { message in
-                        MessageRow(message: message, text: session.visibleText(of: message))
+                        MessageRow(message: message, text: session.visibleText(of: message),
+                                   hovered: navigator.active && navigator.message(in: session.boxedMessages)?.id == message.id)
                             .id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -44,6 +45,10 @@ struct MessageLog: View {
             .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { scroller.geometry = $1 }
             .onChange(of: session.messages.count) { scrollDown(proxy) }
             .onChange(of: session.revealed) { scrollDown(proxy, animated: false) }
+            .onChange(of: navigator.messageId) {
+                guard let id = navigator.message(in: session.boxedMessages)?.id else { return }
+                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) }
+            }
             .onAppear { scrollDown(proxy, animated: false) }
         }
         .overlay(alignment: .trailing) {
@@ -82,9 +87,24 @@ private struct EmptyQuest: View {
     }
 }
 
+extension Session {
+    /// The messages drawn as boxes, which are the ones vim navigation steps through.
+    var boxedMessages: [ChatMessage] {
+        messages.filter { message in
+            let text = visibleText(of: message)
+            switch message.speaker {
+            case .user: return !text.hasPrefix("!") && !text.hasPrefix(Session.terminalMarker)
+            case .claude: return true
+            default: return false
+            }
+        }
+    }
+}
+
 struct MessageRow: View {
     var message: ChatMessage
     var text: String
+    var hovered = false
 
     var body: some View {
         switch message.speaker {
@@ -160,13 +180,13 @@ struct MessageRow: View {
     private func bubble<Content: View>(name: String, plate: Color, light: Bool, alignment: HorizontalAlignment,
                                        @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: alignment, spacing: -8) {
-            NamePlate(name: name, color: plate)
+            NamePlate(name: name, color: plate, morphing: hovered)
                 .padding(.horizontal, 18)
                 .zIndex(1)
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 6)
-                .panel(light: light, padding: 18)
+                .panel(light: light, padding: 18, morphing: hovered)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -205,7 +225,7 @@ struct DialogueBox: View {
                     NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
                               textColor: inTerminal ? .black : Theme.navy, morphing: true)
                     commitCounts
-                    KeyHints(hints: navigationHints + [("⌘1 ⌘2", "tab"), ("⌘⇧H J K L", "model")])
+                    KeyHints(hints: navigationHints + [("⌘1 ⌘2", "tab"), ("⌘⇧H J K L", "model"), ("⌃R", "reset"), ("⌃L", "load")])
                 }
                 .padding(.horizontal, 18)
                 .zIndex(1)
@@ -238,10 +258,13 @@ struct DialogueBox: View {
                             return .handled
                         }
                         .onKeyPress(phases: .down) { press in
-                            guard press.modifiers == .control, press.key == "c" || press.characters == "\u{03}" else {
-                                return .ignored
+                            guard press.modifiers == .control else { return .ignored }
+                            switch (press.key, press.characters) {
+                            case ("c", _), (_, "\u{03}"): interrupt()
+                            case ("r", _), (_, "\u{12}"): session.reset()
+                            case ("l", _), (_, "\u{0C}"): if !session.isBusy { loading = true }
+                            default: return .ignored
                             }
-                            interrupt()
                             return .handled
                         }
                         .onKeyPress(.tab, phases: .down) { _ in
@@ -283,7 +306,7 @@ struct DialogueBox: View {
                 .animation(.easeOut(duration: 0.15), value: isShell)
             }
 
-            CommandMenu(entries: menuEntries, highlighted: navigator.active && navigationZone == .menu ? navigator.menuIndex : nil)
+            CommandMenu(entries: menuEntries)
         }
         .padding(.horizontal, 18)
         .padding(.bottom, 16)
@@ -301,31 +324,21 @@ struct DialogueBox: View {
         let diffToggle = ("⌘D", session.showingDiff ? "close diff" : "diff")
         guard navigator.active else {
             if isAnswering && navigator.typingAnswer { return [("ESC", "back to options"), diffToggle] }
-            let hints = [("ESC", "navigate"), diffToggle]
-            return choosing ? [("↑ ↓", "choose"), ("⏎", "select")] + hints : hints
+            return choosing ? [("↑ ↓", "choose"), ("⏎", "select"), diffToggle] : [diffToggle]
         }
-        let move = navigationZone == .diff ? ("j k", "line") : ("j k", "item")
-        var hints = [move, ("g G", navigationZone == .diff ? "top/end" : "first/last")]
-        if session.showingDiff { hints += [("h l", "diff/menu"), ("J K", "file")] }
-        return hints + [("⏎", navigationZone == .diff ? "quote" : "select"), diffToggle, ("ESC i", "type")]
+        if session.showingDiff {
+            return [("j k", "line"), ("g G", "top/end"), ("J K", "file"), ("⏎", "quote"), diffToggle, ("ESC i", "type")]
+        }
+        return [("j k", "message"), ("g G", "first/last"), diffToggle, ("ESC i", "type")]
     }
-
-    private var navigationZone: Navigator.Zone { session.showingDiff ? navigator.zone : .menu }
 
     private var menuEntries: [MenuEntry] {
         var entries: [MenuEntry] = []
-        if !session.isBusy || session.prompt?.question != nil {
-            entries.append(MenuEntry(title: "SEND", index: 0, color: session.draft.trimmed.isEmpty ? Theme.dim : Theme.ice, action: send))
-        }
         if session.isBusy {
             entries.append(MenuEntry(title: "STOP", index: session.prompt?.question != nil ? 1 : 0, color: Theme.red, shortcut: ".", action: session.stop))
         }
         if session.isTalking {
             entries.append(MenuEntry(title: "SKIP", index: 1, action: session.skipTyping))
-        }
-        entries.append(MenuEntry(title: "RESET", index: 2, help: "Start a fresh conversation in this tab", action: session.reset))
-        if !session.isBusy {
-            entries.append(MenuEntry(title: "LOAD DATA", index: 3, help: "Continue an earlier Claude session in this tab") { loading = true })
         }
         return entries
     }
@@ -352,7 +365,7 @@ struct DialogueBox: View {
         return .handled
     }
 
-    /// Esc toggles a vim-like mode where keys move a cursor over the diff and the command menu instead of typing.
+    /// Esc toggles a vim-like mode where keys move a cursor over the diff and the message log instead of typing.
     private func navigate(_ press: KeyPress) -> KeyPress.Result {
         guard navigator.active else {
             guard press.key == .escape, press.modifiers.isEmpty else { return .ignored }
@@ -360,31 +373,27 @@ struct DialogueBox: View {
                 navigator.typingAnswer = false
                 return .handled
             }
-            navigator.zone = session.showingDiff ? .diff : .menu
+            navigator.setMessage(session.boxedMessages.count - 1, in: session.boxedMessages)
             navigator.active = true
             return .handled
         }
         guard isPlain(press) else { return .ignored }
-        let entries = menuEntries
         let diff = session.diff
-        let inDiff = navigationZone == .diff
+        let messages = session.boxedMessages
+        let inDiff = session.showingDiff
         switch (press.key, press.characters) {
         case (.escape, _), (_, "i"): navigator.active = false
         case (.downArrow, _), (_, "j"):
-            if inDiff { navigator.moveLine(by: 1, in: diff) } else { navigator.moveMenu(by: 1, count: entries.count) }
+            if inDiff { navigator.moveLine(by: 1, in: diff) } else { navigator.moveMessage(by: 1, in: messages) }
         case (.upArrow, _), (_, "k"):
-            if inDiff { navigator.moveLine(by: -1, in: diff) } else { navigator.moveMenu(by: -1, count: entries.count) }
-        case (.leftArrow, _), (_, "h"): if session.showingDiff { navigator.zone = .diff }
-        case (.rightArrow, _), (_, "l"): navigator.zone = .menu
-        case (_, "g"): if inDiff { navigator.setLine(0, in: diff) } else { navigator.menuIndex = 0 }
-        case (_, "G"): if inDiff { navigator.setLine(.max, in: diff) } else { navigator.menuIndex = entries.count - 1 }
+            if inDiff { navigator.moveLine(by: -1, in: diff) } else { navigator.moveMessage(by: -1, in: messages) }
+        case (_, "g"): if inDiff { navigator.setLine(0, in: diff) } else { navigator.setMessage(0, in: messages) }
+        case (_, "G"): if inDiff { navigator.setLine(.max, in: diff) } else { navigator.setMessage(.max, in: messages) }
         case (_, "J"): navigator.moveFile(by: 1, in: diff)
         case (_, "K"): navigator.moveFile(by: -1, in: diff)
         case (.return, _):
             if inDiff, let file = navigator.file(in: diff) {
                 session.quote(String(AttributedString(ansi: file.lines[navigator.line(in: diff)]).characters))
-            } else if !entries.isEmpty {
-                entries[min(navigator.menuIndex, entries.count - 1)].action()
             }
         default: break
         }
@@ -562,10 +571,9 @@ private struct MenuList: View {
 
 private struct CommandMenu: View {
     var entries: [MenuEntry]
-    var highlighted: Int?
 
     var body: some View {
-        MenuList(entries: entries, highlighted: highlighted)
+        MenuList(entries: entries)
             .frame(width: 150, alignment: .leading)
             .frame(minHeight: 128, alignment: .center)
     }

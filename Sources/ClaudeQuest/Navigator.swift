@@ -1,13 +1,10 @@
 import SwiftUI
 
-/// Vim-style keyboard cursor over the diff and the command menu, driven from the input field since it never loses focus.
+/// Vim-style keyboard cursor over the diff and the message log, driven from the input field since it never loses focus.
 @MainActor
 final class Navigator: ObservableObject {
-    enum Zone { case diff, menu }
-
     @Published var active = false
-    @Published var zone = Zone.menu
-    @Published var menuIndex = 0
+    @Published var messageId: ChatMessage.ID?
     @Published var promptIndex = 0
     @Published var typingAnswer = false
     @Published var diffLine = 0
@@ -37,7 +34,16 @@ final class Navigator: ObservableObject {
         diffPath = diff[min(max(index + delta, 0), diff.count - 1)].id
     }
 
-    func moveMenu(by delta: Int, count: Int) {
-        menuIndex = min(max(min(menuIndex, count - 1) + delta, 0), count - 1)
+    func message(in messages: [ChatMessage]) -> ChatMessage? {
+        messages.first { $0.id == messageId } ?? messages.last
+    }
+
+    func moveMessage(by delta: Int, in messages: [ChatMessage]) {
+        guard let current = message(in: messages), let index = messages.firstIndex(of: current) else { return }
+        messageId = messages[min(max(index + delta, 0), messages.count - 1)].id
+    }
+
+    func setMessage(_ index: Int, in messages: [ChatMessage]) {
+        messageId = messages.isEmpty ? nil : messages[min(max(index, 0), messages.count - 1)].id
     }
 }

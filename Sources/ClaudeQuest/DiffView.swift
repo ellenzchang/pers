@@ -7,7 +7,7 @@ struct DiffView: View {
     @ViewState private var viewportWidth: CGFloat = 0
 
     private var current: FileDiff? { navigator.file(in: session.diff) }
-    private var cursor: Int? { navigator.active && navigator.zone == .diff ? navigator.line(in: session.diff) : nil }
+    private var cursor: Int? { navigator.active ? navigator.line(in: session.diff) : nil }
 
     var body: some View {
         HStack(spacing: 0) {
