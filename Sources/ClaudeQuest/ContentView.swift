@@ -89,12 +89,18 @@ struct StatusHUD: View {
         .padding(.top, 16)
         .padding(.bottom, 8)
         .background(LinearGradient(colors: [Theme.deep.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom))
+        .background {
+            Button("") { promptForWorktree() }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
+                .opacity(0)
+                .allowsHitTesting(false)
+        }
         .alert("New worktree", isPresented: $askingForWorktree) {
             TextField("branch-name", text: $newWorktreeName)
             Button("Create & open tab", action: createWorktree)
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Creates a sibling directory on a new branch and opens it in a new tab.")
+            Text("Creates a directory in .claude/worktrees on a new branch and opens it in a new tab.")
         }
         .alert("Git error", isPresented: Binding(get: { gitError != nil }, set: { if !$0 { gitError = nil } })) {
             Button("OK") {}
@@ -166,7 +172,7 @@ struct StatusHUD: View {
                     }
                 }
                 Divider()
-                Button("New worktree…") { newWorktreeName = ""; askingForWorktree = true }
+                Button("New worktree…", action: promptForWorktree)
                 Button("Refresh") { session.refreshGit() }
             } label: {
                 Chip(color: Theme.aqua) {
@@ -206,6 +212,12 @@ struct StatusHUD: View {
         panel.canChooseFiles = false
         panel.directoryURL = URL(fileURLWithPath: session.directory)
         if panel.runModal() == .OK, let url = panel.url { session.directory = url.path }
+    }
+
+    private func promptForWorktree() {
+        guard session.git != nil else { return }
+        newWorktreeName = ""
+        askingForWorktree = true
     }
 
     private func createWorktree() {

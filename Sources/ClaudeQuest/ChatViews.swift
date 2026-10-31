@@ -362,7 +362,7 @@ struct DialogueBox: View {
 
     private var navigationHints: [(key: String, action: String)] {
         let diffToggle = ("⌘D", session.showingDiff ? "close diff" : "diff")
-        let diffControls = [("⇧⌘T", session.diffBase == .unstaged ? "vs main" : "unstaged"), ("⇧⌘O", "IntelliJ"), diffToggle]
+        let diffControls = [("⇧⌘E", session.diffBase == .unstaged ? "vs main" : "unstaged"), ("⇧⌘O", "IntelliJ"), diffToggle]
         guard navigator.active else {
             let toggles = session.showingDiff ? diffControls : [diffToggle]
             if isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
@@ -579,7 +579,7 @@ struct KeyHints: View {
     var highlighted: String?
 
     var body: some View {
-        HStack(spacing: 10) {
+        FlowLayout(spacing: 10, lineSpacing: 4) {
             ForEach(hints, id: \.key) { hint in
                 HStack(spacing: 4) {
                     Text(hint.key)
@@ -592,6 +592,41 @@ struct KeyHints: View {
         }
         .font(Theme.ui(11, weight: .bold))
         .allowsHitTesting(false)
+    }
+}
+
+private struct FlowLayout: Layout {
+    var spacing: CGFloat
+    var lineSpacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        arrange(in: proposal.width ?? .infinity, subviews).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let origins = arrange(in: bounds.width, subviews).origins
+        for (subview, origin) in zip(subviews, origins) {
+            subview.place(at: CGPoint(x: bounds.minX + origin.x, y: bounds.minY + origin.y), proposal: .unspecified)
+        }
+    }
+
+    private func arrange(in width: CGFloat, _ subviews: Subviews) -> (origins: [CGPoint], size: CGSize) {
+        var origins: [CGPoint] = []
+        var x: CGFloat = 0, y: CGFloat = 0, lineHeight: CGFloat = 0, maxX: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > width {
+                x = 0
+                y += lineHeight + lineSpacing
+                lineHeight = 0
+            }
+            origins.append(CGPoint(x: x, y: y))
+            x += size.width
+            maxX = max(maxX, x)
+            x += spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+        return (origins, CGSize(width: maxX, height: y + lineHeight))
     }
 }
 

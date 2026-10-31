@@ -136,13 +136,12 @@ enum Git {
         }
     }
 
-    /// Creates `<repo>-<name>` next to the main repo on a new branch `<name>`.
+    /// Creates `<repo>/.claude/worktrees/<name>` inside the main repo on a new branch `<name>`.
     static func addWorktree(named name: String, from directory: String) throws -> String {
-        guard let root = run(["rev-parse", "--show-toplevel"], in: directory)?.trimmed else {
+        guard let root = worktrees(at: directory).first?.path else {
             throw GitError("Not a git repository")
         }
-        let parent = (root as NSString).deletingLastPathComponent
-        let path = (parent as NSString).appendingPathComponent("\((root as NSString).lastPathComponent)-\(name)")
+        let path = (root as NSString).appendingPathComponent(".claude/worktrees/\(name)")
         let result = execute(["worktree", "add", "-b", name, path], in: directory)
         guard result.status == 0 else { throw GitError(result.stderr.trimmed) }
         return path
