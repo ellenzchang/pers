@@ -147,6 +147,16 @@ enum Git {
         return path
     }
 
+    /// Commits reachable from HEAD that no remote has, whether or not the branch tracks an upstream.
+    static func unpushedCommits(at directory: String) -> Int {
+        Int(run(["rev-list", "--count", "HEAD", "--not", "--remotes"], in: directory)?.trimmed ?? "") ?? 0
+    }
+
+    static func removeWorktree(_ worktree: Worktree, from directory: String) throws {
+        let result = execute(["worktree", "remove", "--force", worktree.path], in: directory)
+        guard result.status == 0 else { throw GitError(result.stderr.trimmed) }
+    }
+
     private static func count(of key: String, in header: String) -> Int {
         guard let range = header.range(of: "\(key) ") else { return 0 }
         return Int(header[range.upperBound...].prefix { $0.isNumber }) ?? 0

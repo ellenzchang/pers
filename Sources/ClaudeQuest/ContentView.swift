@@ -27,6 +27,10 @@ struct ContentView: View {
             .padding(.leading, 18)
             .padding(.bottom, 250)
         }
+        .overlay {
+            if let pending = store.pendingClose { WorktreeCleanupPopup(pending: pending) }
+            if store.creatingWorktree { NewWorktreePopup() }
+        }
         .background(MoonlitBackground())
         .background {
             Button("") { showSprite.toggle() }
@@ -73,9 +77,6 @@ private struct MainPanel: View {
 struct StatusHUD: View {
     @EnvironmentObject var store: AppStore
     @ObservedObject var session: Session
-    @ViewState private var newWorktreeName = ""
-    @ViewState private var askingForWorktree = false
-    @ViewState private var gitError: String?
 
     var body: some View {
         HStack(alignment: .center, spacing: 18) {
@@ -94,18 +95,6 @@ struct StatusHUD: View {
                 .keyboardShortcut("t", modifiers: [.command, .shift])
                 .opacity(0)
                 .allowsHitTesting(false)
-        }
-        .alert("New worktree", isPresented: $askingForWorktree) {
-            TextField("branch-name", text: $newWorktreeName)
-            Button("Create & open tab", action: createWorktree)
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Creates a directory in .claude/worktrees on a new branch and opens it in a new tab.")
-        }
-        .alert("Git error", isPresented: Binding(get: { gitError != nil }, set: { if !$0 { gitError = nil } })) {
-            Button("OK") {}
-        } message: {
-            Text(gitError ?? "")
         }
     }
 
@@ -216,17 +205,6 @@ struct StatusHUD: View {
 
     private func promptForWorktree() {
         guard session.git != nil else { return }
-        newWorktreeName = ""
-        askingForWorktree = true
-    }
-
-    private func createWorktree() {
-        let name = newWorktreeName.trimmed
-        guard !name.isEmpty else { return }
-        do {
-            store.newTab(directory: try Git.addWorktree(named: name, from: session.directory))
-        } catch {
-            gitError = error.localizedDescription
-        }
+        store.creatingWorktree = true
     }
 }

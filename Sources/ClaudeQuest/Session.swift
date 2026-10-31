@@ -495,6 +495,8 @@ final class Session: ObservableObject, Identifiable {
 final class AppStore: ObservableObject {
     @Published var sessions: [Session] = []
     @Published var selectedId: UUID?
+    @Published var pendingClose: WorktreeClose?
+    @Published var creatingWorktree = false
 
     private var saveSubscription: AnyCancellable?
     private var sessionSubscriptions: AnyCancellable?
@@ -560,7 +562,41 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// Closing the last tab of a worktree under `.claude/worktrees` also deletes it, after confirmation if work would be lost.
     func close(_ session: Session) {
+        guard let worktree = deletableWorktree(of: session) else { return closeTab(session) }
+        Task {
+            let (git, unpushed) = await Task.detached { (Git.info(at: worktree.path), Git.unpushedCommits(at: worktree.path)) }.value
+            let close = WorktreeClose(session: session, worktree: worktree, git: git, unpushed: unpushed)
+            if let git, git.changedFiles > 0 || unpushed > 0 {
+                pendingClose = close
+            } else {
+                closeAndDelete(close)
+            }
+        }
+    }
+
+    func closeAndDelete(_ close: WorktreeClose) {
+        closeTab(close.session)
+        do {
+            try Git.removeWorktree(close.worktree, from: close.session.repoPath)
+            pendingClose = nil
+        } catch {
+            var failed = close
+            failed.error = error.localizedDescription
+            pendingClose = failed
+        }
+        sessions.forEach { $0.refreshGit() }
+    }
+
+    private func deletableWorktree(of session: Session) -> Worktree? {
+        let managedRoot = (session.repoPath as NSString).appendingPathComponent(".claude/worktrees/")
+        let shared = sessions.contains { $0.id != session.id && $0.directory == session.directory }
+        guard !shared, session.directory.hasPrefix(managedRoot) else { return nil }
+        return session.git?.worktrees.first { $0.path == session.directory }
+    }
+
+    private func closeTab(_ session: Session) {
         session.stop()
         guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
         sessions.remove(at: index)
@@ -580,4 +616,12 @@ struct RepoGroup: Identifiable {
     var sessions: [Session]
     var id: String { path }
     var name: String { (path as NSString).lastPathComponent }
+}
+
+struct WorktreeClose {
+    var session: Session
+    var worktree: Worktree
+    var git: GitInfo?
+    var unpushed: Int
+    var error: String?
 }
