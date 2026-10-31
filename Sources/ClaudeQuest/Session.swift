@@ -9,7 +9,7 @@ final class Session: ObservableObject, Identifiable {
     @Published var model: ClaudeModel
     @Published var mode: PermissionMode
     @Published var effort: Effort?
-    @Published var cost: Double
+    @Published var tokens: Int
     @Published var messages: [ChatMessage]
     @Published var draft = ""
     @Published private(set) var inputHistory: [String] = []
@@ -38,7 +38,7 @@ final class Session: ObservableObject, Identifiable {
         self.directory = directory
         self.model = model
         self.mode = mode
-        cost = 0
+        tokens = 0
         messages = []
         refreshGit()
     }
@@ -50,7 +50,7 @@ final class Session: ObservableObject, Identifiable {
         model = snapshot.model
         mode = snapshot.mode
         effort = snapshot.effort
-        cost = snapshot.cost
+        tokens = snapshot.tokens ?? 0
         messages = snapshot.messages
         draft = snapshot.draft ?? ""
         inputHistory = snapshot.inputHistory ?? []
@@ -69,7 +69,7 @@ final class Session: ObservableObject, Identifiable {
         model = parent.model
         mode = parent.mode
         effort = parent.effort
-        cost = 0
+        tokens = 0
         self.messages = messages
         forkedFrom = parent.id
         self.forkAt = forkAt
@@ -78,7 +78,7 @@ final class Session: ObservableObject, Identifiable {
 
     var snapshot: SessionSnapshot {
         SessionSnapshot(id: id, directory: directory, sessionId: sessionId, model: model, mode: mode,
-                        effort: effort, cost: cost, messages: messages, outfit: outfit, draft: draft, inputHistory: inputHistory,
+                        effort: effort, tokens: tokens, messages: messages, outfit: outfit, draft: draft, inputHistory: inputHistory,
                         forkedFrom: forkedFrom, forkAt: forkAt)
     }
 
@@ -126,7 +126,7 @@ final class Session: ObservableObject, Identifiable {
     func reset() {
         stop()
         messages = []
-        cost = 0
+        tokens = 0
         resets += 1
         startNewSession()
     }
@@ -138,7 +138,7 @@ final class Session: ObservableObject, Identifiable {
         if directory == saved.directory { startNewSession() } else { directory = saved.directory }
         sessionId = saved.id
         messages = SaveData.messages(in: saved.url)
-        cost = 0
+        tokens = 0
     }
 
     /// Each Claude session gets one outfit for its whole lifetime.
@@ -437,7 +437,9 @@ final class Session: ObservableObject, Identifiable {
                                       detail: Self.detail(of: input), input: input, suggestions: suggestions,
                                       questions: (input["questions"] as? [[String: Any]] ?? []).map(PermissionPrompt.Question.init))
         case "result":
-            cost += event["total_cost_usd"] as? Double ?? 0
+            let usage = event["usage"] as? [String: Any] ?? [:]
+            tokens += ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
+                .reduce(0) { $0 + (usage[$1] as? Int ?? 0) }
             // Closing stdin lets the CLI exit now that the turn is over.
             try? input?.close()
             input = nil

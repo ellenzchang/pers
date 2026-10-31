@@ -45,7 +45,7 @@ struct SessionSnapshot: Codable {
     var model: ClaudeModel
     var mode: PermissionMode
     var effort: Effort?
-    var cost: Double
+    var tokens: Int?
     var messages: [ChatMessage]
     var outfit: Int?
     var draft: String?

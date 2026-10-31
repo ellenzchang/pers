@@ -144,8 +144,12 @@ struct StatusHUD: View {
         .buttonStyle(.plain)
         .fixedSize()
 
-        Chip(color: Theme.gold) { Text(String(format: "$%.3f", session.cost)) }
-            .help("Total cost for this tab (USD)")
+        Chip(color: Theme.gold) { Text(Self.compact(session.tokens)) }
+            .help("Tokens used in this session (input, output and cache)")
+    }
+
+    private static func compact(_ tokens: Int) -> String {
+        tokens < 1000 ? "\(tokens) TOKENS" : String(format: "%.1fk TOKENS", Double(tokens) / 1000)
     }
 
     @ViewBuilder
