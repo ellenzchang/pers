@@ -25,6 +25,8 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var prompt: PermissionPrompt?
     @Published private(set) var resets = 0
 
+    private(set) var forkedFrom: UUID?
+    private var forkAt: String?
     private var process: Process?
     private var input: FileHandle?
     private var typer: Timer?
@@ -51,17 +53,36 @@ final class Session: ObservableObject, Identifiable {
         messages = snapshot.messages
         draft = snapshot.draft ?? ""
         inputHistory = snapshot.inputHistory ?? []
+        forkedFrom = snapshot.forkedFrom
+        forkAt = snapshot.forkAt
         outfit = snapshot.outfit ?? outfit
         refreshGit()
         checkTranscript()
     }
 
+    /// Carries the parent's conversation up to `forkAt`; the CLI forks it into a session of its own on the first message.
+    init(forking parent: Session, messages: [ChatMessage], forkAt: String?) {
+        id = UUID()
+        directory = parent.directory
+        sessionId = forkAt == nil ? nil : parent.sessionId
+        model = parent.model
+        mode = parent.mode
+        effort = parent.effort
+        cost = 0
+        self.messages = messages
+        forkedFrom = parent.id
+        self.forkAt = forkAt
+        refreshGit()
+    }
+
     var snapshot: SessionSnapshot {
         SessionSnapshot(id: id, directory: directory, sessionId: sessionId, model: model, mode: mode,
-                        effort: effort, cost: cost, messages: messages, outfit: outfit, draft: draft, inputHistory: inputHistory)
+                        effort: effort, cost: cost, messages: messages, outfit: outfit, draft: draft, inputHistory: inputHistory,
+                        forkedFrom: forkedFrom, forkAt: forkAt)
     }
 
     var title: String { (directory as NSString).lastPathComponent }
+    var repoPath: String { git.map { $0.worktrees.first?.path ?? $0.root } ?? directory }
     var logIdentity: String { "\(id)-\(resets)" }
     var isTalking: Bool { typingId != nil }
 
@@ -113,6 +134,7 @@ final class Session: ObservableObject, Identifiable {
     /// Each Claude session gets one outfit for its whole lifetime.
     private func startNewSession() {
         sessionId = nil
+        forkAt = nil
         outfit = Int.random(in: 0..<1000)
     }
 
@@ -159,6 +181,7 @@ final class Session: ObservableObject, Identifiable {
                     "--permission-prompt-tool", "stdio", "--model", model.rawValue, "--permission-mode", mode.rawValue]
         if let effort { args += ["--effort", effort.rawValue] }
         if let sessionId { args += ["--resume", sessionId] }
+        if sessionId != nil, let forkAt { args += ["--fork-session", "--resume-session-at", forkAt] }
 
         let process = claudeProcess(args)
         let out = Pipe(), err = Pipe(), stdin = Pipe()
@@ -386,6 +409,7 @@ final class Session: ObservableObject, Identifiable {
         switch event["type"] as? String {
         case "system" where event["subtype"] as? String == "init":
             sessionId = event["session_id"] as? String
+            forkAt = nil
             liveModel = event["model"] as? String
         case "assistant":
             guard event["parent_tool_use_id"] is NSNull || event["parent_tool_use_id"] == nil,
@@ -464,6 +488,7 @@ final class AppStore: ObservableObject {
 
     private var saveSubscription: AnyCancellable?
     private var sessionSubscriptions: AnyCancellable?
+    private var layoutSubscription: AnyCancellable?
 
     private static let saveURL: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -484,10 +509,19 @@ final class AppStore: ObservableObject {
             self?.sessionSubscriptions = Publishers.MergeMany(sessions.map(\.objectWillChange))
                 .debounce(for: .seconds(1), scheduler: RunLoop.main)
                 .sink { [weak self] in self?.save() }
+            self?.layoutSubscription = Publishers.Merge(Publishers.MergeMany(sessions.map { $0.$git.map { _ in } }),
+                             Publishers.MergeMany(sessions.map { $0.$directory.map { _ in } }))
+                .sink { [weak self] in self?.objectWillChange.send() }
         }
     }
 
     var selected: Session? { sessions.first { $0.id == selectedId } }
+
+    /// The overview's rows: sessions grouped by repo, in tab order.
+    var repos: [RepoGroup] {
+        let paths = sessions.map(\.repoPath).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+        return paths.map { path in RepoGroup(path: path, sessions: sessions.filter { $0.repoPath == path }) }
+    }
 
     func newTab(directory: String? = nil) {
         let base = selected
@@ -495,6 +529,25 @@ final class AppStore: ObservableObject {
                               model: base?.model ?? .sonnet, mode: base?.mode ?? .acceptEdits)
         sessions.append(session)
         selectedId = session.id
+    }
+
+    /// Opens a tab continuing `session` from `message`. The transcript is read off the main thread since it can run to megabytes.
+    func fork(_ session: Session, at message: ChatMessage) {
+        guard let index = session.messages.firstIndex(of: message) else { return }
+        var history = Array(session.messages[...index])
+        let occurrence = history.filter { $0.speaker == message.speaker && $0.text == message.text }.count
+        let parentSessionId = session.sessionId
+        Task {
+            let eventId = await Task.detached {
+                parentSessionId.flatMap { SaveData.eventId(of: message, occurrence: occurrence, sessionId: $0) }
+            }.value
+            if eventId == nil && parentSessionId != nil {
+                history.append(ChatMessage(speaker: .system, text: "That message isn't in Claude's transcript, so the fork starts without its memory."))
+            }
+            let fork = Session(forking: session, messages: history, forkAt: eventId)
+            sessions.append(fork)
+            selectedId = fork.id
+        }
     }
 
     func close(_ session: Session) {
@@ -510,4 +563,11 @@ final class AppStore: ObservableObject {
         guard let data = try? JSONEncoder().encode(sessions.map(\.snapshot)) else { return }
         try? data.write(to: Self.saveURL, options: .atomic)
     }
+}
+
+struct RepoGroup: Identifiable {
+    var path: String
+    var sessions: [Session]
+    var id: String { path }
+    var name: String { (path as NSString).lastPathComponent }
 }

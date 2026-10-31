@@ -36,9 +36,9 @@ struct ClaudeQuestApp: App {
     }
 
     private func cycleTab(by offset: Int) {
-        guard let index = store.sessions.firstIndex(where: { $0.id == store.selectedId }) else { return }
-        let count = store.sessions.count
-        store.selectedId = store.sessions[(index + offset + count) % count].id
+        let sessions = store.repos.flatMap(\.sessions)
+        guard let index = sessions.firstIndex(where: { $0.id == store.selectedId }) else { return }
+        store.selectedId = sessions[(index + offset + sessions.count) % sessions.count].id
     }
 }
 

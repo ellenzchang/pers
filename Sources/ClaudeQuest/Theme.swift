@@ -16,6 +16,9 @@ enum Theme {
     static let aqua = Color(hex: 0x7DF5C8)
     static let gold = Color(hex: 0xFFD866)
     static let green = Color(hex: 0x4BE37A)
+    static let amber = Color(hex: 0xC9961A)
+    static let amberTop = Color(hex: 0x6B5200)
+    static let amberBottom = Color(hex: 0x2E2200)
     static let pink = Color(hex: 0xFF7AB8)
     static let red = Color(hex: 0xFF4D6D)
 
@@ -92,6 +95,7 @@ struct Panel: ViewModifier {
     var dark = false
     var padding: CGFloat = 14
     var morphing = false
+    var colors: [Color]?
 
     func body(content: Content) -> some View {
         content
@@ -114,7 +118,7 @@ struct Panel: ViewModifier {
             if light {
                 shape.fill(Theme.ice)
             } else {
-                let colors = dark ? [Theme.terminalTop, Theme.terminalBottom] : [Theme.panelTop, Theme.panelBottom]
+                let colors = colors ?? (dark ? [Theme.terminalTop, Theme.terminalBottom] : [Theme.panelTop, Theme.panelBottom])
                 shape.fill(LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom))
                     .opacity(0.94)
             }
@@ -125,8 +129,8 @@ struct Panel: ViewModifier {
 
 extension View {
     func panel(light: Bool = false, accent: Color = Theme.cyan, dark: Bool = false, padding: CGFloat = 14,
-               morphing: Bool = false) -> some View {
-        modifier(Panel(light: light, accent: accent, dark: dark, padding: padding, morphing: morphing))
+               morphing: Bool = false, colors: [Color]? = nil) -> some View {
+        modifier(Panel(light: light, accent: accent, dark: dark, padding: padding, morphing: morphing, colors: colors))
     }
 }
 

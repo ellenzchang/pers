@@ -9,7 +9,6 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TabBar()
             if let session = store.selected {
                 StatusHUD(session: session)
                 MainPanel(session: session, scroller: scroller, navigator: navigator)
@@ -17,6 +16,16 @@ struct ContentView: View {
                 DialogueBox(session: session, scroller: scroller, navigator: navigator)
                     .id(session.id)
             }
+        }
+        .overlay(alignment: .topLeading) {
+            VStack(alignment: .leading, spacing: 14) {
+                DayPanel()
+                SessionOverview()
+            }
+            .frame(width: 232, alignment: .topLeading)
+            .padding(.top, 34)
+            .padding(.leading, 18)
+            .padding(.bottom, 250)
         }
         .background(MoonlitBackground())
         .background {
@@ -47,52 +56,6 @@ private struct MainPanel: View {
     }
 }
 
-struct TabBar: View {
-    @EnvironmentObject var store: AppStore
-
-    var body: some View {
-        HStack(spacing: 6) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(store.sessions) { session in
-                        TabItem(session: session, selected: session.id == store.selectedId)
-                            .onTapGesture { store.selectedId = session.id }
-                    }
-                }
-                .padding(.vertical, 2)
-            }
-            Button { store.newTab() } label: { Chip(color: Theme.ice) { Text("+ NEW") } }
-                .buttonStyle(.plain)
-                .help("New tab (⌘T)")
-        }
-        .padding(.leading, 80)
-        .padding(.trailing, 12)
-        .padding(.vertical, 6)
-        .background(Theme.deep.opacity(0.6))
-    }
-}
-
-private struct TabItem: View {
-    @EnvironmentObject var store: AppStore
-    @ObservedObject var session: Session
-    var selected: Bool
-
-    var body: some View {
-        Chip(active: selected, color: session.isBusy ? Theme.aqua : Theme.cyan) {
-            HStack(spacing: 6) {
-                Text(session.isBusy ? "◈" : "◆")
-                Text(session.title).lineLimit(1)
-                if let branch = session.git?.branch {
-                    Text(branch).opacity(0.7).lineLimit(1)
-                }
-                Button { store.close(session) } label: { Text("×") }
-                    .buttonStyle(.plain)
-            }
-        }
-        .frame(maxWidth: 260)
-    }
-}
-
 struct StatusHUD: View {
     @EnvironmentObject var store: AppStore
     @ObservedObject var session: Session
@@ -102,7 +65,6 @@ struct StatusHUD: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 18) {
-            DayPanel()
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 8) {
                 HStack(spacing: 8) { locationRow }
@@ -110,7 +72,8 @@ struct StatusHUD: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 8)
+        .padding(.top, 16)
+        .padding(.bottom, 8)
         .background(LinearGradient(colors: [Theme.deep.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom))
         .alert("New worktree", isPresented: $askingForWorktree) {
             TextField("branch-name", text: $newWorktreeName)

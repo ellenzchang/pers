@@ -63,17 +63,30 @@ enum SaveData {
     }
 
     static func messages(in url: URL) -> [ChatMessage] {
-        events(in: url).flatMap { event -> [ChatMessage] in
-            guard event["isSidechain"] as? Bool != true else { return [] }
+        chatEntries(in: url).map(\.message)
+    }
+
+    /// The transcript event holding the `occurrence`th message with this speaker and text, which is where `--resume-session-at` cuts a fork.
+    static func eventId(of message: ChatMessage, occurrence: Int, sessionId: String) -> String? {
+        guard let url = transcripts()?.first(where: { $0.lastPathComponent == "\(sessionId).jsonl" }) else { return nil }
+        let matches = chatEntries(in: url).filter { $0.message.speaker == message.speaker && $0.message.text == message.text }
+        return matches.indices.contains(occurrence - 1) ? matches[occurrence - 1].id : nil
+    }
+
+    private static func chatEntries(in url: URL) -> [(id: String, message: ChatMessage)] {
+        events(in: url).flatMap { event -> [(id: String, message: ChatMessage)] in
+            guard event["isSidechain"] as? Bool != true, let id = event["uuid"] as? String else { return [] }
+            let messages: [ChatMessage]
             switch event["type"] as? String {
             case "user":
-                return prompt(in: event).map { [ChatMessage(speaker: .user, text: $0)] } ?? []
+                messages = prompt(in: event).map { [ChatMessage(speaker: .user, text: $0)] } ?? []
             case "assistant":
                 let blocks = (event["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
-                return blocks.compactMap(Session.message(from:))
+                messages = blocks.compactMap(Session.message(from:))
             default:
-                return []
+                messages = []
             }
+            return messages.map { (id, $0) }
         }
     }
 

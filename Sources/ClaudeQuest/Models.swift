@@ -50,6 +50,8 @@ struct SessionSnapshot: Codable {
     var outfit: Int?
     var draft: String?
     var inputHistory: [String]?
+    var forkedFrom: UUID?
+    var forkAt: String?
 }
 
 struct PermissionPrompt {

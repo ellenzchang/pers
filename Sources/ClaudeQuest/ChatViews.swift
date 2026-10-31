@@ -30,14 +30,16 @@ struct MessageLog: View {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     if session.messages.isEmpty { EmptyQuest() }
                     ForEach(session.messages) { message in
+                        let hovered = navigator.active && navigator.message(in: session.boxedMessages)?.id == message.id
                         MessageRow(message: message, text: session.visibleText(of: message),
-                                   hovered: navigator.active && navigator.message(in: session.boxedMessages)?.id == message.id)
+                                   hovered: hovered, forking: hovered && navigator.forkArmed, hints: hovered ? navigationHints : [])
                             .id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .padding(.horizontal, 24)
-                .padding(.vertical, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 32)
                 .frame(maxWidth: 980)
                 .frame(maxWidth: .infinity)
             }
@@ -45,9 +47,14 @@ struct MessageLog: View {
             .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { scroller.geometry = $1 }
             .onChange(of: session.messages.count) { scrollDown(proxy) }
             .onChange(of: session.revealed) { scrollDown(proxy, animated: false) }
-            .onChange(of: navigator.messageId) {
-                guard let id = navigator.message(in: session.boxedMessages)?.id else { return }
-                withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) }
+            .onChange(of: navigator.messageId) { centerSelection(proxy) }
+            .onChange(of: navigator.active) {
+                guard navigator.active else { return }
+                // The dialogue box shrinks as navigation starts, so centre once the log has its final height.
+                Task {
+                    try? await Task.sleep(for: .milliseconds(200))
+                    centerSelection(proxy)
+                }
             }
             .onAppear { scrollDown(proxy, animated: false) }
         }
@@ -60,6 +67,16 @@ struct MessageLog: View {
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.6), value: session.prompt?.step)
+    }
+
+    private func centerSelection(_ proxy: ScrollViewProxy) {
+        guard let id = navigator.message(in: session.boxedMessages)?.id else { return }
+        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) }
+    }
+
+    private var navigationHints: [(key: String, action: String)] {
+        [("j k", "message"), ("g G", "first/last"), ("f", navigator.forkArmed ? "again to fork from this message" : "fork"),
+         ("⌘D", "diff"), ("ESC i", "type")]
     }
 
     private func scrollDown(_ proxy: ScrollViewProxy, animated: Bool = true) {
@@ -105,6 +122,8 @@ struct MessageRow: View {
     var message: ChatMessage
     var text: String
     var hovered = false
+    var forking = false
+    var hints: [(key: String, action: String)] = []
 
     var body: some View {
         switch message.speaker {
@@ -115,7 +134,7 @@ struct MessageRow: View {
         case .user:
             HStack {
                 Spacer(minLength: 100)
-                bubble(name: "YOU", plate: Theme.cyan, light: true, alignment: .trailing) {
+                bubble(name: "YOU", plate: forking ? Theme.gold : Theme.cyan, light: true, alignment: .trailing) {
                     Text(text)
                         .font(Theme.body)
                         .foregroundStyle(Theme.navy)
@@ -180,15 +199,25 @@ struct MessageRow: View {
     private func bubble<Content: View>(name: String, plate: Color, light: Bool, alignment: HorizontalAlignment,
                                        @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: alignment, spacing: -8) {
-            NamePlate(name: name, color: plate, morphing: hovered)
+            NamePlate(name: name, color: plate, shadowColor: forking ? Theme.amber : Theme.cyan, morphing: hovered)
                 .padding(.horizontal, 18)
                 .zIndex(1)
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 6)
-                .panel(light: light, padding: 18, morphing: hovered)
+                .panel(light: light, accent: forking ? Theme.gold : Theme.cyan, padding: 18, morphing: hovered,
+                       colors: forking ? [Theme.amberTop, Theme.amberBottom] : nil)
+                .overlay(alignment: .bottomTrailing) {
+                    KeyHints(hints: hints, highlighted: forking ? "f" : nil)
+                        .padding(.horizontal, 10)
+                        .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
+                        .padding(.trailing, 18)
+                        .offset(y: 10)
+                }
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .offset(x: forking ? (alignment == .trailing ? -24 : 24) : 0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: forking)
     }
 }
 
@@ -214,7 +243,7 @@ struct DialogueBox: View {
                     // The bust is taller than its layout slot so it rises over the log, like a VN character.
                     Portrait(mood: mood, outfit: session.outfit)
                         .frame(width: 210, height: 248)
-                        .frame(width: 210, height: 150, alignment: .bottom)
+                        .frame(width: 210, height: navigator.active ? 56 : 150, alignment: .bottom)
                         .allowsHitTesting(false)
                     NamePlate(name: "CLAUDE", morphing: true)
                 }
@@ -228,7 +257,6 @@ struct DialogueBox: View {
                     NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
                               textColor: inTerminal ? .black : Theme.navy, morphing: true)
                     commitCounts
-                    KeyHints(hints: navigationHints + [("⌘1 ⌘2", "tab"), ("⌘⇧H J K L", "model"), ("⌃R", "reset"), ("⌃L", "load")])
                 }
                 .padding(.horizontal, 18)
                 .zIndex(1)
@@ -303,17 +331,26 @@ struct DialogueBox: View {
                         }
                 }
                 .padding(.top, 8)
-                .frame(height: 112)
+                .frame(height: navigator.active ? 28 : 112)
+                .animation(.easeOut(duration: 0.15), value: navigator.active)
                 .background(Theme.codeBackground.opacity(isShell && !inTerminal ? 0.9 : 0))
                 .panel(accent: plateColor, dark: inTerminal, padding: 16, morphing: true)
+                .overlay(alignment: .bottomTrailing) {
+                    KeyHints(hints: navigationHints + [("⌘⇧H J K L", "model"), ("⌃R", "reset"), ("⌃L", "load")])
+                        .padding(.horizontal, 10)
+                        .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
+                        .padding(.trailing, 18)
+                        .offset(y: 10)
+                }
                 .animation(.easeOut(duration: 0.15), value: isShell)
             }
 
-            CommandMenu(entries: menuEntries)
+            CommandMenu(entries: menuEntries, compact: navigator.active)
         }
         .padding(.horizontal, 18)
         .padding(.bottom, 16)
         .padding(.top, 6)
+        .animation(.easeOut(duration: 0.15), value: navigator.active)
         .background(LinearGradient(colors: [.clear, Theme.deep.opacity(0.7)], startPoint: .top, endPoint: .bottom))
         .onAppear { focused = true }
         .onTapGesture { if session.isTalking { session.skipTyping() } }
@@ -332,7 +369,7 @@ struct DialogueBox: View {
         if session.showingDiff {
             return [("j k", "line"), ("g G", "top/end"), ("J K", "file"), ("⏎", "quote"), diffToggle, ("ESC i", "type")]
         }
-        return [("j k", "message"), ("g G", "first/last"), diffToggle, ("ESC i", "type")]
+        return []
     }
 
     private var menuEntries: [MenuEntry] {
@@ -394,6 +431,14 @@ struct DialogueBox: View {
         case (_, "G"): if inDiff { navigator.setLine(.max, in: diff) } else { navigator.setMessage(.max, in: messages) }
         case (_, "J"): navigator.moveFile(by: 1, in: diff)
         case (_, "K"): navigator.moveFile(by: -1, in: diff)
+        case (_, "f") where press.phase == .down && !inDiff:
+            guard let message = navigator.message(in: messages) else { break }
+            if navigator.forkArmed {
+                store.fork(session, at: message)
+                navigator.active = false
+            } else {
+                navigator.forkArmed = true
+            }
         case (.return, _):
             if inDiff, let file = navigator.file(in: diff) {
                 session.quote(String(AttributedString(ansi: file.lines[navigator.line(in: diff)]).characters))
@@ -527,8 +572,9 @@ struct DialogueBox: View {
     }
 }
 
-private struct KeyHints: View {
+struct KeyHints: View {
     var hints: [(key: String, action: String)]
+    var highlighted: String?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -537,8 +583,8 @@ private struct KeyHints: View {
                     Text(hint.key)
                         .foregroundStyle(Theme.navy)
                         .padding(.horizontal, 5)
-                        .background(Theme.ice, in: RoundedRectangle(cornerRadius: 3))
-                    Text(hint.action).foregroundStyle(Theme.dim)
+                        .background(hint.key == highlighted ? Theme.gold : Theme.ice, in: RoundedRectangle(cornerRadius: 3))
+                    Text(hint.action).foregroundStyle(hint.key == highlighted ? Theme.gold : Theme.dim)
                 }
             }
         }
@@ -574,11 +620,12 @@ private struct MenuList: View {
 
 private struct CommandMenu: View {
     var entries: [MenuEntry]
+    var compact = false
 
     var body: some View {
         MenuList(entries: entries)
             .frame(width: 150, alignment: .leading)
-            .frame(minHeight: 128, alignment: .center)
+            .frame(minHeight: compact ? 0 : 128, alignment: .center)
     }
 }
 

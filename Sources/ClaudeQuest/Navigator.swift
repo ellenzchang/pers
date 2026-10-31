@@ -3,8 +3,13 @@ import SwiftUI
 /// Vim-style keyboard cursor over the diff and the message log, driven from the input field since it never loses focus.
 @MainActor
 final class Navigator: ObservableObject {
-    @Published var active = false
-    @Published var messageId: ChatMessage.ID?
+    @Published var active = false {
+        didSet { if !active { forkArmed = false } }
+    }
+    @Published var messageId: ChatMessage.ID? {
+        didSet { forkArmed = false }
+    }
+    @Published var forkArmed = false
     @Published var promptIndex = 0
     @Published var typingAnswer = false
     @Published var diffLine = 0
