@@ -17,6 +17,7 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var outfit = Int.random(in: 0..<1000)
     @Published var git: GitInfo?
     @Published var showingDiff = false
+    @Published private(set) var diffBase = DiffBase.unstaged
     @Published private(set) var diff: [FileDiff] = []
     @Published private(set) var isBusy = false
     @Published private(set) var isRunningShell = false
@@ -100,11 +101,20 @@ final class Session: ObservableObject, Identifiable {
 
     func toggleDiff() {
         showingDiff.toggle()
+        if showingDiff { loadDiff() }
+    }
+
+    func toggleDiffBase() {
         guard showingDiff else { return }
-        let directory = directory
+        diffBase = diffBase.toggled
+        loadDiff()
+    }
+
+    private func loadDiff() {
+        let directory = directory, base = diffBase
         Task.detached {
-            let diff = await Git.diff(at: directory)
-            await MainActor.run { self.diff = diff }
+            let diff = await Git.diff(base, at: directory)
+            await MainActor.run { if self.diffBase == base { self.diff = diff } }
         }
     }
 

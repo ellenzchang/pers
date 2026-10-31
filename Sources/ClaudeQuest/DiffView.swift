@@ -17,7 +17,7 @@ struct DiffView: View {
                     ScrollView([.horizontal, .vertical]) {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             ForEach(Array(current.lines.enumerated()), id: \.offset) { index, line in
-                                DiffLine(text: AttributedString(ansi: line), selected: index == cursor) { session.quote($0) }
+                                DiffLine(row: line, selected: index == cursor) { session.quote($0) }
                             }
                         }
                         .scrollTargetLayout()
@@ -60,109 +60,62 @@ struct DiffView: View {
 }
 
 private struct DiffLine: View {
-    var text: AttributedString
+    var row: DiffRow
     var selected: Bool
     var onTap: (String) -> Void
     @ViewState private var hovering = false
 
+    private static let hunkColor = Color(hex: 0x5C8DFF)
+
+    private var tint: Color? {
+        switch row.kind {
+        case .added: Theme.green
+        case .removed: Theme.red
+        case .hunk: Self.hunkColor
+        case .context: nil
+        }
+    }
+
+    private var marker: String {
+        switch row.kind {
+        case .added: "+"
+        case .removed: "-"
+        case .hunk, .context: " "
+        }
+    }
+
+    private var code: AttributedString {
+        var text = AttributedString(row.text.isEmpty ? " " : row.text)
+        text.font = Theme.code
+        text.foregroundColor = row.kind == .hunk ? Theme.dim : Theme.text
+        if let changed = row.changed, !changed.isEmpty, let tint {
+            let start = text.index(text.startIndex, offsetByCharacters: changed.lowerBound)
+            let end = text.index(start, offsetByCharacters: changed.count)
+            text[start..<end].backgroundColor = tint.opacity(0.4)
+        }
+        return text
+    }
+
     var body: some View {
-        Text(text)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(hovering || selected ? Theme.cyan.opacity(0.2) : .clear)
-            .contentShape(Rectangle())
-            .onHover { hovering = $0 }
-            .onTapGesture { onTap(String(text.characters)) }
-    }
-}
-
-private struct ANSIStyle {
-    var foreground: Color?
-    var background: Color?
-    var bold = false
-    var reverse = false
-
-    private static let palette = [Theme.dim, Theme.red, Theme.green, Theme.gold,
-                                  Color(hex: 0x5C8DFF), Theme.pink, Theme.aqua, Theme.text]
-
-    mutating func apply(_ params: Substring) {
-        let codes = params.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
-        var index = 0
-        while index < codes.count {
-            let code = codes[index]
-            index += 1
-            switch code {
-            case 0: self = ANSIStyle()
-            case 1: bold = true
-            case 22: bold = false
-            case 7: reverse = true
-            case 27: reverse = false
-            case 30...37: foreground = Self.palette[code - 30]
-            case 90...97: foreground = Self.palette[code - 90]
-            case 39: foreground = nil
-            case 40...47: background = Self.palette[code - 40]
-            case 100...107: background = Self.palette[code - 100]
-            case 49: background = nil
-            case 38, 48:
-                let color = Self.extendedColor(codes, from: &index)
-                if code == 38 { foreground = color } else { background = color }
-            default: break
-            }
+        HStack(spacing: 0) {
+            gutter(row.oldNumber)
+            gutter(row.newNumber)
+            Text(marker).font(Theme.code).foregroundStyle(tint ?? Theme.dim).frame(width: 18)
+            Text(code).frame(maxWidth: .infinity, alignment: .leading)
         }
+        .background(hovering || selected ? Theme.cyan.opacity(0.2) : .clear)
+        .background(tint?.opacity(row.kind == .hunk ? 0.12 : 0.15) ?? .clear)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture { onTap(row.text) }
     }
 
-    private static func extendedColor(_ codes: [Int], from index: inout Int) -> Color? {
-        guard index < codes.count else { return nil }
-        let mode = codes[index]
-        index += 1
-        if mode == 2, index + 2 < codes.count {
-            defer { index += 3 }
-            return Color(red: Double(codes[index]) / 255, green: Double(codes[index + 1]) / 255, blue: Double(codes[index + 2]) / 255)
-        }
-        guard mode == 5, index < codes.count else { return nil }
-        let n = codes[index]
-        index += 1
-        switch n {
-        case 0..<16: return palette[n % 8]
-        case 16..<232:
-            let level = { (v: Int) in v == 0 ? 0 : Double(55 + v * 40) / 255 }
-            return Color(red: level((n - 16) / 36), green: level((n - 16) / 6 % 6), blue: level((n - 16) % 6))
-        default:
-            let gray = Double(8 + (n - 232) * 10) / 255
-            return Color(red: gray, green: gray, blue: gray)
-        }
-    }
-
-    func attributes() -> AttributeContainer {
-        var container = AttributeContainer()
-        let foreground = foreground ?? Theme.text
-        container.font = bold ? Theme.code.bold() : Theme.code
-        container.foregroundColor = reverse ? background ?? Theme.codeBackground : foreground
-        container.backgroundColor = reverse ? foreground : background
-        return container
-    }
-}
-
-extension AttributedString {
-    init(ansi line: Substring) {
-        self.init()
-        var style = ANSIStyle()
-        var rest = line
-        func append(_ text: Substring) {
-            guard !text.isEmpty else { return }
-            var chunk = AttributedString(text)
-            chunk.setAttributes(style.attributes())
-            self.append(chunk)
-        }
-        while let escape = rest.range(of: "\u{1B}[") {
-            append(rest[..<escape.lowerBound])
-            rest = rest[escape.upperBound...]
-            let params = rest.prefix { $0.isNumber || $0 == ";" }
-            rest = rest.dropFirst(params.count)
-            guard let final = rest.first else { break }
-            rest = rest.dropFirst()
-            if final == "m" { style.apply(params) }
-        }
-        append(rest)
-        if characters.isEmpty { append(" ") }
+    private func gutter(_ number: Int?) -> some View {
+        Text(number.map(String.init) ?? "")
+            .font(Theme.code)
+            .foregroundStyle(Theme.dim)
+            .frame(width: 52, alignment: .trailing)
+            .padding(.trailing, 6)
+            .background((tint ?? .clear).opacity(row.kind == .hunk ? 0 : 0.2))
     }
 }

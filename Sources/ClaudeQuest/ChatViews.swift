@@ -362,12 +362,14 @@ struct DialogueBox: View {
 
     private var navigationHints: [(key: String, action: String)] {
         let diffToggle = ("⌘D", session.showingDiff ? "close diff" : "diff")
+        let diffControls = [("⇧⌘T", session.diffBase == .unstaged ? "vs main" : "unstaged"), ("⇧⌘O", "IntelliJ"), diffToggle]
         guard navigator.active else {
-            if isAnswering && navigator.typingAnswer { return [("ESC", "back to options"), diffToggle] }
-            return choosing ? [("↑ ↓", "choose"), ("⏎", "select"), diffToggle] : [diffToggle]
+            let toggles = session.showingDiff ? diffControls : [diffToggle]
+            if isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
+            return choosing ? [("↑ ↓", "choose"), ("⏎", "select")] + toggles : toggles
         }
         if session.showingDiff {
-            return [("j k", "line"), ("g G", "top/end"), ("J K", "file"), ("⏎", "quote"), diffToggle, ("ESC i", "type")]
+            return [("j k", "line"), ("g G", "top/end"), ("J K", "file"), ("⏎", "quote")] + diffControls + [("ESC i", "type")]
         }
         return []
     }
@@ -441,7 +443,7 @@ struct DialogueBox: View {
             }
         case (.return, _):
             if inDiff, let file = navigator.file(in: diff) {
-                session.quote(String(AttributedString(ansi: file.lines[navigator.line(in: diff)]).characters))
+                session.quote(file.lines[navigator.line(in: diff)].text)
             }
         default: break
         }

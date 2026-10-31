@@ -33,10 +33,24 @@ struct ContentView: View {
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .opacity(0)
                 .allowsHitTesting(false)
+            Button("") { openDiffFileInIntelliJ() }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .opacity(0)
+                .allowsHitTesting(false)
         }
         .ignoresSafeArea(edges: .top)
         .preferredColorScheme(.dark)
         .frame(minWidth: 820, minHeight: 600)
+    }
+
+    private func openDiffFileInIntelliJ() {
+        guard let session = store.selected, session.showingDiff, let root = session.git?.root,
+              let file = navigator.file(in: session.diff),
+              let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.jetbrains.intellij") else { return }
+        let process = Process()
+        process.executableURL = app.appendingPathComponent("Contents/MacOS/idea")
+        process.arguments = [root, (root as NSString).appendingPathComponent(file.path)]
+        try? process.run()
     }
 }
 

@@ -7,11 +7,26 @@ struct Worktree: Identifiable, Hashable {
     var name: String { (path as NSString).lastPathComponent }
 }
 
+enum DiffBase {
+    case unstaged, main
+
+    var toggled: DiffBase { self == .unstaged ? .main : .unstaged }
+    var label: String { self == .unstaged ? "unstaged" : "vs main" }
+}
+
+struct DiffRow: Equatable {
+    enum Kind { case context, added, removed, hunk }
+    var kind: Kind
+    var oldNumber: Int?
+    var newNumber: Int?
+    var text: String
+    var changed: Range<Int>?
+}
+
 struct FileDiff: Identifiable, Equatable {
     var path: String
-    var output: String
+    var lines: [DiffRow]
     var id: String { path }
-    var lines: [Substring] { output.split(separator: "\n", omittingEmptySubsequences: false) }
 }
 
 struct GitInfo: Equatable {
@@ -41,13 +56,16 @@ enum Git {
         )
     }
 
-    static func diff(at directory: String) async -> [FileDiff] {
-        let paths = (run(["diff", "HEAD", "--name-only", "-z"], in: directory) ?? "")
+    static func diff(_ base: DiffBase, at directory: String) async -> [FileDiff] {
+        let ref = base == .main ? [run(["merge-base", "main", "HEAD"], in: directory)?.trimmed ?? "main"] : []
+        let paths = (run(["diff"] + ref + ["--name-only", "-z"], in: directory) ?? "")
             .split(separator: "\0").map(String.init)
-        let pager = run(["config", "core.pager"], in: directory)?.trimmed ?? ""
         return await withTaskGroup(of: (Int, FileDiff).self) { group in
             for (index, path) in paths.enumerated() {
-                group.addTask { (index, FileDiff(path: path, output: fileDiff(path, pager: pager, in: directory))) }
+                group.addTask {
+                    let output = execute(["diff"] + ref + ["--no-color", "--no-ext-diff", "--", path], in: directory).stdout
+                    return (index, FileDiff(path: path, lines: parse(output)))
+                }
             }
             var results: [(Int, FileDiff)] = []
             for await result in group { results.append(result) }
@@ -55,9 +73,54 @@ enum Git {
         }
     }
 
-    private static func fileDiff(_ path: String, pager: String, in directory: String) -> String {
-        let script = "export TERM=xterm-256color; git diff HEAD --color=always -- \"$1\"" + (pager.isEmpty ? "" : " | \(pager)")
-        return execute(["-lc", script, "diff", path], in: directory, executable: "/bin/zsh").stdout
+    private static func parse(_ output: String) -> [DiffRow] {
+        var rows: [DiffRow] = []
+        var old = 0, new = 0
+        for line in output.split(separator: "\n", omittingEmptySubsequences: false) {
+            let text = String(line.dropFirst())
+            if line.hasPrefix("@@") {
+                let fields = line.split(separator: " ")
+                old = startLine(fields[1])
+                new = startLine(fields[2])
+                rows.append(DiffRow(kind: .hunk, text: String(line)))
+            } else if rows.isEmpty {
+                continue
+            } else if line.hasPrefix("+") {
+                rows.append(DiffRow(kind: .added, newNumber: new, text: text))
+                new += 1
+            } else if line.hasPrefix("-") {
+                rows.append(DiffRow(kind: .removed, oldNumber: old, text: text))
+                old += 1
+            } else if line.hasPrefix(" ") {
+                rows.append(DiffRow(kind: .context, oldNumber: old, newNumber: new, text: text))
+                old += 1
+                new += 1
+            }
+        }
+        markWordChanges(in: &rows)
+        return rows.isEmpty ? [DiffRow(kind: .hunk, text: "No textual changes")] : rows
+    }
+
+    private static func startLine(_ range: Substring) -> Int {
+        Int(range.dropFirst().prefix { $0.isNumber }) ?? 0
+    }
+
+    /// Pairs each removed line with the added line at the same position in its block, like GitHub's inline highlights.
+    private static func markWordChanges(in rows: inout [DiffRow]) {
+        var index = 0
+        while index < rows.count {
+            guard rows[index].kind == .removed else { index += 1; continue }
+            let removedEnd = rows[index...].firstIndex { $0.kind != .removed } ?? rows.count
+            let addedEnd = rows[removedEnd...].firstIndex { $0.kind != .added } ?? rows.count
+            for offset in 0..<min(removedEnd - index, addedEnd - removedEnd) {
+                let removed = Array(rows[index + offset].text), added = Array(rows[removedEnd + offset].text)
+                let prefix = zip(removed, added).prefix { $0 == $1 }.count
+                let suffix = zip(removed.dropFirst(prefix).reversed(), added.dropFirst(prefix).reversed()).prefix { $0 == $1 }.count
+                rows[index + offset].changed = prefix..<(removed.count - suffix)
+                rows[removedEnd + offset].changed = prefix..<(added.count - suffix)
+            }
+            index = addedEnd
+        }
     }
 
     static func worktrees(at directory: String) -> [Worktree] {
