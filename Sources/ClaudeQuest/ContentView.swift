@@ -23,9 +23,9 @@ struct ContentView: View {
                 if Theme.isQuest { DayPanel() }
                 SessionOverview()
             }
-            .frame(width: 232, alignment: .topLeading)
+            .frame(width: SessionOverview.width, alignment: .topLeading)
             .padding(.top, 34)
-            .padding(.leading, 18)
+            .padding(.leading, SessionOverview.leadingInset)
             .padding(.bottom, 250)
         }
         .overlay(alignment: .topTrailing) {
@@ -102,7 +102,7 @@ private struct CommitLog: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Color.clear.frame(width: 230)
+            Color.clear.frame(width: SessionOverview.reservedWidth)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(commits) { commit in

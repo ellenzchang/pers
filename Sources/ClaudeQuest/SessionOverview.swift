@@ -1,6 +1,10 @@
 import SwiftUI
 
 struct SessionOverview: View {
+    static let width: CGFloat = 232
+    static let leadingInset: CGFloat = 18
+    static let reservedWidth = leadingInset + width
+
     @EnvironmentObject var store: AppStore
 
     var body: some View {

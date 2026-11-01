@@ -11,7 +11,7 @@ struct DiffView: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            Color.clear.frame(width: 230)
+            Color.clear.frame(width: SessionOverview.reservedWidth)
             Group {
                 if let current {
                     VStack(spacing: 0) {
