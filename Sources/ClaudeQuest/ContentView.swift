@@ -257,6 +257,8 @@ struct StatusLine: View {
         }
         .font(Theme.ui(12, weight: .bold))
         .lineLimit(1)
+        .padding(.horizontal, 10)
+        .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
     }
 
     private var separator: some View { Text("│").foregroundStyle(Theme.dim) }

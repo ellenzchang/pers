@@ -275,9 +275,11 @@ struct DialogueBox: View {
 
             VStack(alignment: .leading, spacing: -8) {
                 HStack(spacing: 10) {
-                    NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
-                              textColor: inTerminal ? .black : Theme.navy, morphing: true)
-                    StatusLine(session: session)
+                    HStack(spacing: 0) {
+                        NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
+                                  textColor: inTerminal ? .black : Theme.navy, morphing: true)
+                        StatusLine(session: session)
+                    }
                     attachments
                 }
                 .padding(.horizontal, 18)
