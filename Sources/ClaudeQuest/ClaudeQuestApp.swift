@@ -6,8 +6,6 @@ struct ClaudeQuestApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @StateObject private var store = AppStore()
 
-    static let modelKeys: [KeyEquivalent] = ["h", "j", "k"]
-
     var body: some Scene {
         WindowGroup("Claude Quest") {
             ContentView()
@@ -23,10 +21,8 @@ struct ClaudeQuestApp: App {
                 Button("Close Tab") { store.selected.map(store.close) }.keyboardShortcut("w")
             }
             CommandMenu("Party") {
-                ForEach(Array(zip(ClaudeModel.allCases, Self.modelKeys)), id: \.0) { model, key in
-                    Button("Model: \(model.label)") { store.selected?.model = model }
-                        .keyboardShortcut(key, modifiers: [.command, .shift])
-                }
+                Button("Previous Model") { cycleModel(by: -1) }.keyboardShortcut("j")
+                Button("Next Model") { cycleModel(by: 1) }.keyboardShortcut("k")
                 Divider()
                 Button("Toggle Diff") { store.selected?.toggleDiff() }.keyboardShortcut("d")
                 Button("Toggle Diff Base") { store.selected?.toggleDiffBase() }.keyboardShortcut("e", modifiers: [.command, .shift])
@@ -34,6 +30,13 @@ struct ClaudeQuestApp: App {
                 Button("Next Tab") { cycleTab(by: 1) }.keyboardShortcut("2")
             }
         }
+    }
+
+    private func cycleModel(by offset: Int) {
+        guard let session = store.selected else { return }
+        let models = ClaudeModel.allCases
+        let index = models.firstIndex(of: session.model) ?? 0
+        session.model = models[(index + offset + models.count) % models.count]
     }
 
     private func cycleTab(by offset: Int) {

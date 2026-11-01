@@ -352,7 +352,7 @@ struct DialogueBox: View {
                 .background(Theme.codeBackground.opacity(isShell && !inTerminal ? 0.9 : 0))
                 .panel(accent: plateColor, dark: inTerminal, padding: 16, morphing: true)
                 .overlay(alignment: .bottomTrailing) {
-                    KeyHints(hints: navigationHints + [("⌘⇧H J K", "model"), ("⌃R", "reset"), ("⌃L", "load")])
+                    KeyHints(hints: navigationHints + [("⌘J K", "model"), ("⌃R", "reset"), ("⌃L", "load")])
                         .padding(.horizontal, 10)
                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                         .padding(.trailing, 18)
