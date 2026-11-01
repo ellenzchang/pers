@@ -23,6 +23,10 @@ enum SaveData {
         }
     }
 
+    static func title(ofSession sessionId: String) -> String? {
+        transcripts()?.first { $0.lastPathComponent == "\(sessionId).jsonl" }.flatMap { summary(of: $0, opened: [:])?.title }
+    }
+
     static func list() -> [SavedSession] {
         let opened = UserDefaults.standard.dictionary(forKey: openedKey) as? [String: Date] ?? [:]
         return (transcripts() ?? []).compactMap { summary(of: $0, opened: opened) }.sorted { $0.updated > $1.updated }

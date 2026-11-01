@@ -30,13 +30,14 @@ private struct OverviewRow: View {
     @ObservedObject var session: Session
     var selected: Bool
     @ViewState private var hovered = false
+    @ViewState private var tabTitle: String?
     private var highlighted: Bool { hovered || selected }
 
     var body: some View {
         HStack(spacing: 8) {
             Text(session.isBusy ? "◈" : "◆")
             VStack(alignment: .leading, spacing: 0) {
-                Text(session.title)
+                Text(tabTitle ?? session.title)
                     .font(Theme.ui(15, weight: .bold))
                     .lineLimit(1)
                 if let branch = session.git?.branch {
@@ -62,6 +63,10 @@ private struct OverviewRow: View {
         .offset(x: highlighted ? 6 : 0)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: highlighted)
         .onHover { hovered = $0 }
+        .task(id: "\(session.sessionId ?? "")\(session.isBusy)") {
+            guard let sessionId = session.sessionId else { tabTitle = nil; return }
+            tabTitle = await Task.detached { SaveData.title(ofSession: sessionId) }.value
+        }
         .onTapGesture { store.selectedId = session.id }
     }
 
