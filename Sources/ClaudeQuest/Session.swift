@@ -27,6 +27,7 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var revealed = 0
     @Published private(set) var prompt: PermissionPrompt?
     @Published private(set) var resets = 0
+    @Published var hasUnread = false
 
     private(set) var forkedFrom: UUID?
     private var forkAt: String?
@@ -463,7 +464,11 @@ final class Session: ObservableObject, Identifiable {
     private func append(block: [String: Any]) {
         guard let message = Self.message(from: block) else { return }
         messages.append(message)
-        if message.speaker == .claude { startTyping(message) }
+        if message.speaker == .claude {
+            startTyping(message)
+            hasUnread = true
+            NSApp.requestUserAttention(.criticalRequest)
+        }
     }
 
     nonisolated static func message(from block: [String: Any]) -> ChatMessage? {
@@ -513,6 +518,7 @@ final class AppStore: ObservableObject {
     private var saveSubscription: AnyCancellable?
     private var sessionSubscriptions: AnyCancellable?
     private var layoutSubscription: AnyCancellable?
+    private var unreadSubscription: AnyCancellable?
 
     private static let selectedKey = "selectedSession"
 
@@ -539,7 +545,20 @@ final class AppStore: ObservableObject {
             self?.layoutSubscription = Publishers.Merge(Publishers.MergeMany(sessions.map { $0.$git.map { _ in } }),
                              Publishers.MergeMany(sessions.map { $0.$directory.map { _ in } }))
                 .sink { [weak self] in self?.objectWillChange.send() }
+            guard let self else { return }
+            let changes = sessions.map { $0.$hasUnread.map { _ in }.eraseToAnyPublisher() }
+                + [self.$selectedId.map { _ in }.eraseToAnyPublisher(),
+                   NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).map { _ in }.eraseToAnyPublisher()]
+            self.unreadSubscription = Publishers.MergeMany(changes)
+                .receive(on: RunLoop.main)
+                .sink { [weak self] in self?.refreshDockBadge() }
         }
+    }
+
+    private func refreshDockBadge() {
+        if NSApp.isActive, selected?.hasUnread == true { selected?.hasUnread = false }
+        let unread = sessions.filter(\.hasUnread).count
+        NSApp.dockTile.badgeLabel = unread > 0 ? "\(unread)" : nil
     }
 
     var selected: Session? { sessions.first { $0.id == selectedId } }

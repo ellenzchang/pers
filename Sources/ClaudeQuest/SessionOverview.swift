@@ -47,13 +47,8 @@ private struct OverviewRow: View {
                 }
             }
             Spacer(minLength: 0)
-            if session.forkedFrom != nil {
-                Text("FORK")
-                    .font(Theme.ui(10, weight: .black))
-                    .foregroundStyle(Theme.navy)
-                    .padding(.horizontal, 6)
-                    .background(Slant(amount: 4).fill(Theme.gold))
-            }
+            if session.hasUnread { tag("NEW") }
+            if session.forkedFrom != nil { tag("FORK") }
             if hovered {
                 Button { store.close(session) } label: { Text("×") }
                     .buttonStyle(.plain)
@@ -68,5 +63,13 @@ private struct OverviewRow: View {
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: highlighted)
         .onHover { hovered = $0 }
         .onTapGesture { store.selectedId = session.id }
+    }
+
+    private func tag(_ text: String) -> some View {
+        Text(text)
+            .font(Theme.ui(10, weight: .black))
+            .foregroundStyle(Theme.navy)
+            .padding(.horizontal, 6)
+            .background(Slant(amount: 4).fill(Theme.gold))
     }
 }
