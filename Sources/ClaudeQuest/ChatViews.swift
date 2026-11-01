@@ -706,18 +706,18 @@ private struct CommandMenu: View {
 private func promptEntries(_ prompt: PermissionPrompt, session: Session, navigator: Navigator) -> [MenuEntry] {
     if let question = prompt.question {
         let options = question.options.enumerated().map { index, option in
-            MenuEntry(title: option.label.uppercased(), index: index, help: option.description) { session.reply(option.label) }
+            MenuEntry(title: option.label, index: index, help: option.description) { session.reply(option.label) }
         }
-        return options + [MenuEntry(title: "TYPE ANSWER", index: options.count, color: Theme.aqua,
+        return options + [MenuEntry(title: "Type your own answer", index: options.count, color: Theme.aqua,
                                     help: "Write your own answer in the input field") { navigator.typingAnswer = true }]
     }
-    var entries = [MenuEntry(title: "ALLOW", index: 0) { session.answer(prompt, allow: true) }]
+    var entries = [MenuEntry(title: "Allow", index: 0) { session.answer(prompt, allow: true) }]
     if !prompt.suggestions.isEmpty {
-        entries.append(MenuEntry(title: "ALWAYS", index: 1, color: Theme.aqua, help: "Allow and remember this rule") {
+        entries.append(MenuEntry(title: "Always allow", index: 1, color: Theme.aqua, help: "Allow and remember this rule") {
             session.answer(prompt, allow: true, always: true)
         })
     }
-    return entries + [MenuEntry(title: "DENY", index: 2, color: Theme.red) { session.answer(prompt, allow: false) }]
+    return entries + [MenuEntry(title: "Deny", index: 2, color: Theme.red) { session.answer(prompt, allow: false) }]
 }
 
 private struct LoadData: View {
@@ -880,7 +880,7 @@ private struct PermissionBox: View {
             .font(Theme.body)
             .foregroundStyle(Theme.text)
             .fixedSize(horizontal: false, vertical: true)
-        MenuList(entries: promptEntries(prompt, session: session, navigator: navigator), highlighted: highlighted)
+        OptionList(entries: promptEntries(prompt, session: session, navigator: navigator), highlighted: highlighted)
     }
 
     @ViewBuilder
@@ -893,7 +893,52 @@ private struct PermissionBox: View {
                 .truncationMode(.middle)
                 .textSelection(.enabled)
         }
-        MenuList(entries: promptEntries(prompt, session: session, navigator: navigator), highlighted: highlighted)
+        OptionList(entries: promptEntries(prompt, session: session, navigator: navigator), highlighted: highlighted)
+    }
+}
+
+private struct OptionList: View {
+    var entries: [MenuEntry]
+    var highlighted: Int?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(entries.enumerated()), id: \.element.id) { position, entry in
+                OptionRow(entry: entry, highlighted: position == highlighted.map { min($0, entries.count - 1) })
+            }
+        }
+    }
+}
+
+private struct OptionRow: View {
+    var entry: MenuEntry
+    var highlighted: Bool
+    @ViewState private var hovered = false
+    private var isActive: Bool { hovered || highlighted }
+
+    var body: some View {
+        Button(action: entry.action) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(isActive ? "▶" : "○")
+                    .foregroundStyle(isActive ? Theme.gold : Theme.dim)
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.title)
+                        .foregroundStyle(isActive ? Theme.gold : entry.color)
+                    if !entry.help.isEmpty {
+                        Text(entry.help)
+                            .font(Theme.ui(12, weight: .regular))
+                            .foregroundStyle(Theme.dim)
+                    }
+                }
+            }
+            .font(Theme.body)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovered = $0 }
     }
 }
 
