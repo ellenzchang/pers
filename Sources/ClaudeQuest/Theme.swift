@@ -1,32 +1,44 @@
 import SwiftUI
 
+enum ThemeStyle: String, CaseIterable {
+    case neutral, quest
+}
+
 enum Theme {
-    static let deep = Color(hex: 0x020718)
-    static let ocean = Color(hex: 0x0A2A6B)
-    static let panelTop = Color(hex: 0x0D307A)
-    static let panelBottom = Color(hex: 0x04103A)
-    static let terminalTop = Color(hex: 0x1A1A1A)
-    static let terminalBottom = Color(hex: 0x000000)
-    static let ice = Color(hex: 0xEAF8FF)
-    static let navy = Color(hex: 0x061A4A)
-    static let codeBackground = Color(hex: 0x020A1E)
-    static let text = Color(hex: 0xEAF8FF)
-    static let dim = Color(hex: 0x6E8FC4)
-    static let cyan = Color(hex: 0x37D7FF)
-    static let aqua = Color(hex: 0x7DF5C8)
-    static let gold = Color(hex: 0xFFD866)
-    static let green = Color(hex: 0x4BE37A)
-    static let amber = Color(hex: 0xC9961A)
-    static let amberTop = Color(hex: 0x6B5200)
-    static let amberBottom = Color(hex: 0x2E2200)
-    static let pink = Color(hex: 0xFF7AB8)
-    static let red = Color(hex: 0xFF4D6D)
+    static let styleKey = "theme"
+
+    static var isQuest: Bool { UserDefaults.standard.string(forKey: styleKey) == ThemeStyle.quest.rawValue }
+
+    private static func pick(_ neutral: UInt32, _ quest: UInt32) -> Color {
+        Color(hex: isQuest ? quest : neutral)
+    }
+
+    static var deep: Color { pick(0x0D1117, 0x020718) }
+    static var ocean: Color { pick(0x0D1117, 0x0A2A6B) }
+    static var panelTop: Color { pick(0x161B22, 0x0D307A) }
+    static var panelBottom: Color { pick(0x161B22, 0x04103A) }
+    static var terminalTop: Color { pick(0x010409, 0x1A1A1A) }
+    static var terminalBottom: Color { pick(0x010409, 0x000000) }
+    static var ice: Color { pick(0xE6EDF3, 0xEAF8FF) }
+    static var navy: Color { pick(0x0D1117, 0x061A4A) }
+    static var codeBackground: Color { pick(0x010409, 0x020A1E) }
+    static var text: Color { pick(0xE6EDF3, 0xEAF8FF) }
+    static var dim: Color { pick(0x8B949E, 0x6E8FC4) }
+    static var cyan: Color { pick(0x58A6FF, 0x37D7FF) }
+    static var aqua: Color { pick(0x39C5CF, 0x7DF5C8) }
+    static var gold: Color { pick(0xD29922, 0xFFD866) }
+    static var green: Color { pick(0x3FB950, 0x4BE37A) }
+    static var amber: Color { pick(0x9E6A03, 0xC9961A) }
+    static var amberTop: Color { pick(0x272115, 0x6B5200) }
+    static var amberBottom: Color { pick(0x272115, 0x2E2200) }
+    static var pink: Color { pick(0xF778BA, 0xFF7AB8) }
+    static var red: Color { pick(0xF85149, 0xFF4D6D) }
 
     static func ui(_ size: CGFloat = 12, weight: Font.Weight = .heavy) -> Font {
-        .system(size: size, weight: weight).width(.condensed).italic()
+        isQuest ? .system(size: size, weight: weight).width(.condensed).italic() : .system(size: size, weight: .medium)
     }
     static func display(_ size: CGFloat) -> Font {
-        .system(size: size, weight: .black).width(.compressed).italic()
+        isQuest ? .system(size: size, weight: .black).width(.compressed).italic() : .system(size: size * 0.6, weight: .semibold)
     }
     static let body = Font.system(size: 14.5, weight: .medium)
     static let code = Font.system(size: 12.5, design: .monospaced)
@@ -42,7 +54,8 @@ struct Slant: Shape {
     var amount: CGFloat = 8
 
     func path(in rect: CGRect) -> Path {
-        Path { path in
+        guard Theme.isQuest else { return Path(roundedRect: rect, cornerRadius: 6) }
+        return Path { path in
             path.move(to: CGPoint(x: rect.minX + amount, y: rect.minY))
             path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
             path.addLine(to: CGPoint(x: rect.maxX - amount, y: rect.maxY))
@@ -57,7 +70,8 @@ struct CutPanel: Shape {
     var cut: CGFloat = 16
 
     func path(in rect: CGRect) -> Path {
-        Path { path in
+        guard Theme.isQuest else { return Path(roundedRect: rect, cornerRadius: 8) }
+        return Path { path in
             path.move(to: CGPoint(x: rect.minX + cut, y: rect.minY))
             path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
             path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - cut))
@@ -95,13 +109,14 @@ struct Panel: ViewModifier {
     var dark = false
     var padding: CGFloat = 14
     var morphing = false
+    var selected = false
     var colors: [Color]?
 
     func body(content: Content) -> some View {
         content
             .padding(padding)
             .background {
-                if morphing {
+                if morphing && Theme.isQuest {
                     TimelineView(.animation) { timeline in
                         let time = timeline.date.timeIntervalSinceReferenceDate
                         layers(MorphingPanel(time: time), shadow: MorphingPanel(time: time, phase: 2.5))
@@ -112,9 +127,14 @@ struct Panel: ViewModifier {
             }
     }
 
+    private var borderOpacity: Double {
+        if light { return 0 }
+        return Theme.isQuest ? 0.7 : selected ? 1 : 0.35
+    }
+
     private func layers(_ shape: some Shape, shadow: some Shape) -> some View {
         ZStack {
-            shadow.fill(accent.opacity(0.35)).offset(x: 6, y: 6)
+            if Theme.isQuest { shadow.fill(accent.opacity(0.35)).offset(x: 6, y: 6) }
             if light {
                 shape.fill(Theme.ice)
             } else {
@@ -122,15 +142,15 @@ struct Panel: ViewModifier {
                 shape.fill(LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom))
                     .opacity(0.94)
             }
-            shape.stroke(accent.opacity(light ? 0 : 0.7), lineWidth: 1.5)
+            shape.stroke(accent.opacity(borderOpacity), lineWidth: Theme.isQuest || selected ? 1.5 : 1)
         }
     }
 }
 
 extension View {
     func panel(light: Bool = false, accent: Color = Theme.cyan, dark: Bool = false, padding: CGFloat = 14,
-               morphing: Bool = false, colors: [Color]? = nil) -> some View {
-        modifier(Panel(light: light, accent: accent, dark: dark, padding: padding, morphing: morphing, colors: colors))
+               morphing: Bool = false, selected: Bool = false, colors: [Color]? = nil) -> some View {
+        modifier(Panel(light: light, accent: accent, dark: dark, padding: padding, morphing: morphing, selected: selected, colors: colors))
     }
 }
 
@@ -148,7 +168,7 @@ struct NamePlate: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 3)
             .background {
-                if morphing {
+                if morphing && Theme.isQuest {
                     TimelineView(.animation) { timeline in
                         let time = timeline.date.timeIntervalSinceReferenceDate
                         layers(MorphingPanel(time: time, wobble: 4), shadow: MorphingPanel(time: time, phase: 2.5, wobble: 4))
@@ -161,7 +181,7 @@ struct NamePlate: View {
 
     private func layers(_ shape: some Shape, shadow: some Shape) -> some View {
         ZStack {
-            shadow.fill(shadowColor).offset(x: 4, y: 3)
+            if Theme.isQuest { shadow.fill(shadowColor).offset(x: 4, y: 3) }
             shape.fill(color)
         }
     }

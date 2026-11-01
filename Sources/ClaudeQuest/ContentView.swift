@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject var store: AppStore
     @StateObject private var scroller = LogScroller()
     @StateObject private var navigator = Navigator()
+    @AppStorage(Theme.styleKey) private var style = ThemeStyle.neutral
     @AppStorage(DialogueBox.showSpriteKey) private var showSprite = false
 
     var body: some View {
@@ -19,7 +20,7 @@ struct ContentView: View {
         }
         .overlay(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 14) {
-                DayPanel()
+                if Theme.isQuest { DayPanel() }
                 SessionOverview()
             }
             .frame(width: 232, alignment: .topLeading)
@@ -36,7 +37,9 @@ struct ContentView: View {
                 }
             }
         }
-        .background(MoonlitBackground())
+        .background {
+            if Theme.isQuest { MoonlitBackground() } else { Theme.deep }
+        }
         .background {
             Button("") { showSprite.toggle() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
@@ -50,6 +53,7 @@ struct ContentView: View {
         .ignoresSafeArea(edges: .top)
         .preferredColorScheme(.dark)
         .frame(minWidth: 820, minHeight: 600)
+        .id(style)
     }
 
     private func openDiffFileInIntelliJ() {
@@ -82,6 +86,7 @@ private struct MainPanel: View {
 struct StatusHUD: View {
     @EnvironmentObject var store: AppStore
     @ObservedObject var session: Session
+    @AppStorage(Theme.styleKey) private var style = ThemeStyle.neutral
 
     var body: some View {
         HStack(alignment: .center, spacing: 18) {
@@ -151,6 +156,18 @@ struct StatusHUD: View {
 
         Chip(color: Theme.gold) { Text(Self.compact(session.tokens)) }
             .help("Tokens used in this session (input, output and cache)")
+
+        Menu {
+            Picker("Theme", selection: $style) {
+                ForEach(ThemeStyle.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Chip(color: Theme.ice) { Text("THEME") }
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
     }
 
     private static func compact(_ tokens: Int) -> String {

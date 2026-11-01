@@ -98,7 +98,7 @@ private struct EmptyQuest: View {
                 .padding(.vertical, 2)
                 .background(Slant(amount: 10).fill(Theme.cyan))
         }
-        .rotationEffect(.degrees(-4))
+        .rotationEffect(.degrees(Theme.isQuest ? -4 : 0))
         .frame(maxWidth: .infinity)
         .padding(.top, 70)
     }
@@ -135,7 +135,7 @@ struct MessageRow: View {
         case .user:
             HStack {
                 Spacer(minLength: 100)
-                bubble(name: "YOU", plate: forking ? Theme.gold : Theme.cyan, light: true, alignment: .trailing) {
+                bubble(name: "YOU", plate: forking ? Theme.gold : Theme.cyan, light: Theme.isQuest, alignment: .trailing) {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(Array((message.images ?? []).enumerated()), id: \.offset) { _, data in
                             if let image = NSImage(data: data) {
@@ -150,7 +150,7 @@ struct MessageRow: View {
                         if !text.isEmpty {
                             Text(text)
                                 .font(Theme.body)
-                                .foregroundStyle(Theme.navy)
+                                .foregroundStyle(Theme.isQuest ? Theme.navy : Theme.text)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -220,7 +220,7 @@ struct MessageRow: View {
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 6)
-                .panel(light: light, accent: forking ? Theme.gold : Theme.cyan, padding: 18, morphing: hovered,
+                .panel(light: light, accent: forking || (hovered && !Theme.isQuest) ? Theme.gold : Theme.cyan, padding: 18, morphing: hovered, selected: hovered,
                        colors: forking ? [Theme.amberTop, Theme.amberBottom] : nil)
                 .overlay(alignment: .bottomTrailing) {
                     KeyHints(hints: hints, highlighted: forking ? "f" : nil)
@@ -250,7 +250,6 @@ struct DialogueBox: View {
     @AppStorage(Self.showSpriteKey) private var showSprite = false
 
     static let showSpriteKey = "showSprite"
-
     var body: some View {
         HStack(alignment: .bottom, spacing: 16) {
             if showSprite {
