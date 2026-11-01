@@ -389,6 +389,7 @@ final class Session: ObservableObject, Identifiable {
     func reply(_ text: String) {
         guard var prompt, let question = prompt.question else { return }
         if fix != nil { return resolveFix(text) }
+        messages.append(ChatMessage(speaker: .claude, text: question.markdown))
         messages.append(ChatMessage(speaker: .user, text: text))
         prompt.answers[question.text] = text
         guard prompt.question == nil else { return self.prompt = prompt }

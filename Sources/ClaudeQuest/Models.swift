@@ -86,6 +86,11 @@ struct PermissionPrompt {
         var header: String
         var options: [(label: String, description: String)]
 
+        var markdown: String {
+            let list = options.map { $0.description.isEmpty ? "- **\($0.label)**" : "- **\($0.label)** — \($0.description)" }
+            return ([text, ""] + list).joined(separator: "\n")
+        }
+
         init(json: [String: Any]) {
             text = json["question"] as? String ?? ""
             header = json["header"] as? String ?? ""
