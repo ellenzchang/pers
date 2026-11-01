@@ -1,46 +1,52 @@
 import SwiftUI
 
 enum ThemeStyle: String, CaseIterable {
-    case neutral, quest
+    case neutral, quest, terminal
 }
 
 enum Theme {
     static let styleKey = "theme"
 
-    static var isQuest: Bool { UserDefaults.standard.string(forKey: styleKey) == ThemeStyle.quest.rawValue }
+    private static var style: String? { UserDefaults.standard.string(forKey: styleKey) }
+    static var isQuest: Bool { style == ThemeStyle.quest.rawValue }
+    static var isTerminal: Bool { style == ThemeStyle.terminal.rawValue }
 
-    private static func pick(_ neutral: UInt32, _ quest: UInt32) -> Color {
-        Color(hex: isQuest ? quest : neutral)
+    private static func pick(_ neutral: UInt32, _ quest: UInt32, _ terminal: UInt32) -> Color {
+        Color(hex: isQuest ? quest : isTerminal ? terminal : neutral)
     }
 
-    static var deep: Color { pick(0x0D1117, 0x020718) }
-    static var ocean: Color { pick(0x0D1117, 0x0A2A6B) }
-    static var panelTop: Color { pick(0x161B22, 0x0D307A) }
-    static var panelBottom: Color { pick(0x161B22, 0x04103A) }
-    static var terminalTop: Color { pick(0x010409, 0x1A1A1A) }
-    static var terminalBottom: Color { pick(0x010409, 0x000000) }
-    static var ice: Color { pick(0xE6EDF3, 0xEAF8FF) }
-    static var navy: Color { pick(0x0D1117, 0x061A4A) }
-    static var codeBackground: Color { pick(0x010409, 0x020A1E) }
-    static var text: Color { pick(0xE6EDF3, 0xEAF8FF) }
-    static var dim: Color { pick(0x8B949E, 0x6E8FC4) }
-    static var cyan: Color { pick(0x58A6FF, 0x37D7FF) }
-    static var aqua: Color { pick(0x39C5CF, 0x7DF5C8) }
-    static var gold: Color { pick(0xD29922, 0xFFD866) }
-    static var green: Color { pick(0x3FB950, 0x4BE37A) }
-    static var amber: Color { pick(0x9E6A03, 0xC9961A) }
-    static var amberTop: Color { pick(0x272115, 0x6B5200) }
-    static var amberBottom: Color { pick(0x272115, 0x2E2200) }
-    static var pink: Color { pick(0xF778BA, 0xFF7AB8) }
-    static var red: Color { pick(0xF85149, 0xFF4D6D) }
+    static func radius(_ value: CGFloat) -> CGFloat { isTerminal ? 0 : value }
+
+    static var deep: Color { pick(0x0D1117, 0x020718, 0x0C0C0F) }
+    static var ocean: Color { pick(0x0D1117, 0x0A2A6B, 0x0C0C0F) }
+    static var panelTop: Color { pick(0x161B22, 0x0D307A, 0x131318) }
+    static var panelBottom: Color { pick(0x161B22, 0x04103A, 0x131318) }
+    static var terminalTop: Color { pick(0x010409, 0x1A1A1A, 0x08080A) }
+    static var terminalBottom: Color { pick(0x010409, 0x000000, 0x08080A) }
+    static var ice: Color { pick(0xE6EDF3, 0xEAF8FF, 0xD7D7E0) }
+    static var navy: Color { pick(0x0D1117, 0x061A4A, 0x0C0C0F) }
+    static var codeBackground: Color { pick(0x010409, 0x020A1E, 0x08080A) }
+    static var text: Color { pick(0xE6EDF3, 0xEAF8FF, 0xD7D7E0) }
+    static var dim: Color { pick(0x8B949E, 0x6E8FC4, 0x6C6C80) }
+    static var cyan: Color { pick(0x58A6FF, 0x37D7FF, 0x7DCFFF) }
+    static var aqua: Color { pick(0x39C5CF, 0x7DF5C8, 0x73DACA) }
+    static var gold: Color { pick(0xD29922, 0xFFD866, 0xE0AF68) }
+    static var green: Color { pick(0x3FB950, 0x4BE37A, 0x9ECE6A) }
+    static var amber: Color { pick(0x9E6A03, 0xC9961A, 0xB38A4D) }
+    static var amberTop: Color { pick(0x272115, 0x6B5200, 0x1F1A12) }
+    static var amberBottom: Color { pick(0x272115, 0x2E2200, 0x1F1A12) }
+    static var pink: Color { pick(0xF778BA, 0xFF7AB8, 0xBB9AF7) }
+    static var red: Color { pick(0xF85149, 0xFF4D6D, 0xF7768E) }
 
     static func ui(_ size: CGFloat = 12, weight: Font.Weight = .heavy) -> Font {
-        isQuest ? .system(size: size, weight: weight).width(.condensed).italic() : .system(size: size, weight: .medium)
+        if isTerminal { return .system(size: size, weight: .regular, design: .monospaced) }
+        return isQuest ? .system(size: size, weight: weight).width(.condensed).italic() : .system(size: size, weight: .medium)
     }
     static func display(_ size: CGFloat) -> Font {
-        isQuest ? .system(size: size, weight: .black).width(.compressed).italic() : .system(size: size * 0.6, weight: .semibold)
+        if isTerminal { return .system(size: size * 0.6, weight: .semibold, design: .monospaced) }
+        return isQuest ? .system(size: size, weight: .black).width(.compressed).italic() : .system(size: size * 0.6, weight: .semibold)
     }
-    static let body = Font.system(size: 14.5, weight: .medium)
+    static var body: Font { isTerminal ? .system(size: 13.5, design: .monospaced) : .system(size: 14.5, weight: .medium) }
     static let code = Font.system(size: 12.5, design: .monospaced)
 }
 
@@ -54,7 +60,7 @@ struct Slant: Shape {
     var amount: CGFloat = 8
 
     func path(in rect: CGRect) -> Path {
-        guard Theme.isQuest else { return Path(roundedRect: rect, cornerRadius: 6) }
+        guard Theme.isQuest else { return Path(roundedRect: rect, cornerRadius: Theme.radius(6)) }
         return Path { path in
             path.move(to: CGPoint(x: rect.minX + amount, y: rect.minY))
             path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
@@ -70,7 +76,7 @@ struct CutPanel: Shape {
     var cut: CGFloat = 16
 
     func path(in rect: CGRect) -> Path {
-        guard Theme.isQuest else { return Path(roundedRect: rect, cornerRadius: 8) }
+        guard Theme.isQuest else { return Path(roundedRect: rect, cornerRadius: Theme.radius(8)) }
         return Path { path in
             path.move(to: CGPoint(x: rect.minX + cut, y: rect.minY))
             path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
