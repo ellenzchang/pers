@@ -496,13 +496,17 @@ final class Session: ObservableObject, Identifiable {
 @MainActor
 final class AppStore: ObservableObject {
     @Published var sessions: [Session] = []
-    @Published var selectedId: UUID?
+    @Published var selectedId: UUID? {
+        didSet { UserDefaults.standard.set(selectedId?.uuidString, forKey: Self.selectedKey) }
+    }
     @Published var pendingClose: WorktreeClose?
     @Published var creatingWorktree = false
 
     private var saveSubscription: AnyCancellable?
     private var sessionSubscriptions: AnyCancellable?
     private var layoutSubscription: AnyCancellable?
+
+    private static let selectedKey = "selectedSession"
 
     private static let saveURL: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -517,7 +521,8 @@ final class AppStore: ObservableObject {
             sessions = snapshots.map(Session.init(snapshot:))
         }
         if sessions.isEmpty { sessions = [Session(directory: NSHomeDirectory())] }
-        selectedId = sessions.first?.id
+        let lastSelected = UserDefaults.standard.string(forKey: Self.selectedKey).flatMap(UUID.init)
+        selectedId = sessions.first { $0.id == lastSelected }?.id ?? sessions.first?.id
 
         saveSubscription = $sessions.sink { [weak self] sessions in
             self?.sessionSubscriptions = Publishers.MergeMany(sessions.map(\.objectWillChange))
