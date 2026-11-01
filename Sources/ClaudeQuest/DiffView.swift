@@ -14,20 +14,23 @@ struct DiffView: View {
             Color.clear.frame(width: 230)
             Group {
                 if let current {
-                    ScrollView([.horizontal, .vertical]) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(current.lines.enumerated()), id: \.offset) { index, line in
-                                DiffLine(row: line, selected: index == cursor) { session.quote($0) }
+                    VStack(spacing: 0) {
+                        DiffHeader(file: current)
+                        ScrollView([.horizontal, .vertical]) {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(Array(current.lines.enumerated()), id: \.offset) { index, line in
+                                    DiffLine(row: line, selected: index == cursor) { session.quote($0) }
+                                }
                             }
+                            .scrollTargetLayout()
+                            .frame(minWidth: viewportWidth - 24, alignment: .leading)
+                            .padding(12)
                         }
-                        .scrollTargetLayout()
-                        .frame(minWidth: viewportWidth - 24, alignment: .leading)
-                        .padding(12)
+                        .onScrollGeometryChange(for: CGFloat.self, of: { $0.containerSize.width }) { viewportWidth = $1 }
+                        .scrollPosition($scroller.position)
+                        .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { scroller.geometry = $1 }
+                        .id(current.id)
                     }
-                    .onScrollGeometryChange(for: CGFloat.self, of: { $0.containerSize.width }) { viewportWidth = $1 }
-                    .scrollPosition($scroller.position)
-                    .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { scroller.geometry = $1 }
-                    .id(current.id)
                 } else {
                     Text("No changes").font(Theme.ui(14)).foregroundStyle(Theme.dim)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -59,6 +62,25 @@ struct DiffView: View {
     }
 }
 
+private struct DiffHeader: View {
+    var file: FileDiff
+
+    var body: some View {
+        let directory = (file.path as NSString).deletingLastPathComponent
+        HStack(spacing: 0) {
+            Text(directory.isEmpty ? "" : directory + "/").foregroundStyle(Theme.dim)
+            Text((file.path as NSString).lastPathComponent).foregroundStyle(Theme.text)
+            Spacer()
+            Text("+\(file.added)").foregroundStyle(Theme.green)
+            Text("  \u{2212}\(file.removed)").foregroundStyle(Theme.red)
+        }
+        .font(Theme.code)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(Theme.deep.opacity(0.6))
+    }
+}
+
 private struct DiffLine: View {
     var row: DiffRow
     var selected: Bool
@@ -76,22 +98,16 @@ private struct DiffLine: View {
         }
     }
 
-    private var marker: String {
-        switch row.kind {
-        case .added: "+"
-        case .removed: "-"
-        case .hunk, .context: " "
-        }
-    }
-
     private var code: AttributedString {
         var text = AttributedString(row.text.isEmpty ? " " : row.text)
         text.font = Theme.code
-        text.foregroundColor = row.kind == .hunk ? Theme.dim : Theme.text
-        if let changed = row.changed, !changed.isEmpty, let tint {
-            let start = text.index(text.startIndex, offsetByCharacters: changed.lowerBound)
-            let end = text.index(start, offsetByCharacters: changed.count)
-            text[start..<end].backgroundColor = tint.opacity(0.4)
+        text.foregroundColor = row.kind == .hunk ? Self.hunkColor : Theme.text
+        if let tint {
+            for changed in row.changed {
+                let start = text.index(text.startIndex, offsetByCharacters: changed.lowerBound)
+                let end = text.index(start, offsetByCharacters: changed.count)
+                text[start..<end].backgroundColor = tint.opacity(0.4)
+            }
         }
         return text
     }
@@ -100,8 +116,7 @@ private struct DiffLine: View {
         HStack(spacing: 0) {
             gutter(row.oldNumber)
             gutter(row.newNumber)
-            Text(marker).font(Theme.code).foregroundStyle(tint ?? Theme.dim).frame(width: 18)
-            Text(code).frame(maxWidth: .infinity, alignment: .leading)
+            Text(code).padding(.leading, 8).frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(hovering || selected ? Theme.cyan.opacity(0.2) : .clear)
         .background(tint?.opacity(row.kind == .hunk ? 0.12 : 0.15) ?? .clear)

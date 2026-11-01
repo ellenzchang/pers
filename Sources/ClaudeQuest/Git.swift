@@ -20,13 +20,15 @@ struct DiffRow: Equatable {
     var oldNumber: Int?
     var newNumber: Int?
     var text: String
-    var changed: Range<Int>?
+    var changed: [Range<Int>] = []
 }
 
 struct FileDiff: Identifiable, Equatable {
     var path: String
     var lines: [DiffRow]
     var id: String { path }
+    var added: Int { lines.filter { $0.kind == .added }.count }
+    var removed: Int { lines.filter { $0.kind == .removed }.count }
 }
 
 struct GitInfo: Equatable {
@@ -114,13 +116,78 @@ enum Git {
             let addedEnd = rows[removedEnd...].firstIndex { $0.kind != .added } ?? rows.count
             for offset in 0..<min(removedEnd - index, addedEnd - removedEnd) {
                 let removed = Array(rows[index + offset].text), added = Array(rows[removedEnd + offset].text)
-                let prefix = zip(removed, added).prefix { $0 == $1 }.count
-                let suffix = zip(removed.dropFirst(prefix).reversed(), added.dropFirst(prefix).reversed()).prefix { $0 == $1 }.count
-                rows[index + offset].changed = prefix..<(removed.count - suffix)
-                rows[removedEnd + offset].changed = prefix..<(added.count - suffix)
+                let (removedChanges, addedChanges) = changedRanges(removed, added)
+                let changedCount = removedChanges.reduce(0) { $0 + $1.count }
+                // Lines that barely resemble each other read better with the whole-line tint alone.
+                guard changedCount * 2 <= max(removed.count, added.count) else { continue }
+                rows[index + offset].changed = removedChanges
+                rows[removedEnd + offset].changed = addedChanges
             }
             index = addedEnd
         }
+    }
+
+    private static func changedRanges(_ old: [Character], _ new: [Character]) -> (old: [Range<Int>], new: [Range<Int>]) {
+        let oldTokens = tokenRanges(old), newTokens = tokenRanges(new)
+        let x = oldTokens.map { String(old[$0]) }, y = newTokens.map { String(new[$0]) }
+        var lcs = Array(repeating: Array(repeating: 0, count: y.count + 1), count: x.count + 1)
+        for i in stride(from: x.count - 1, through: 0, by: -1) {
+            for j in stride(from: y.count - 1, through: 0, by: -1) {
+                lcs[i][j] = x[i] == y[j] ? lcs[i + 1][j + 1] + 1 : max(lcs[i + 1][j], lcs[i][j + 1])
+            }
+        }
+        var keptOld = Set<Int>(), keptNew = Set<Int>()
+        var i = 0, j = 0
+        while i < x.count && j < y.count {
+            if x[i] == y[j] {
+                keptOld.insert(i)
+                keptNew.insert(j)
+                i += 1
+                j += 1
+            } else if lcs[i + 1][j] >= lcs[i][j + 1] {
+                i += 1
+            } else {
+                j += 1
+            }
+        }
+        return (highlights(oldTokens, kept: keptOld, text: old), highlights(newTokens, kept: keptNew, text: new))
+    }
+
+    private static func tokenGroup(_ character: Character) -> Int? {
+        if character.isLetter || character.isNumber || character == "_" { return 0 }
+        return character.isWhitespace ? 1 : nil
+    }
+
+    private static func tokenRanges(_ text: [Character]) -> [Range<Int>] {
+        var ranges: [Range<Int>] = []
+        var start = 0
+        while start < text.count {
+            var end = start + 1
+            if let group = tokenGroup(text[start]) {
+                while end < text.count, tokenGroup(text[end]) == group { end += 1 }
+            }
+            ranges.append(start..<end)
+            start = end
+        }
+        return ranges
+    }
+
+    /// Merges changed tokens into ranges, letting a lone unchanged space between two changes join them.
+    private static func highlights(_ tokens: [Range<Int>], kept: Set<Int>, text: [Character]) -> [Range<Int>] {
+        func isChanged(_ index: Int) -> Bool {
+            if !kept.contains(index) { return true }
+            let isSpace = text[tokens[index]].allSatisfy(\.isWhitespace)
+            return isSpace && index > 0 && index < tokens.count - 1 && !kept.contains(index - 1) && !kept.contains(index + 1)
+        }
+        var ranges: [Range<Int>] = []
+        for (index, token) in tokens.enumerated() where isChanged(index) {
+            if let last = ranges.last, last.upperBound == token.lowerBound {
+                ranges[ranges.count - 1] = last.lowerBound..<token.upperBound
+            } else {
+                ranges.append(token)
+            }
+        }
+        return ranges
     }
 
     static func worktrees(at directory: String) -> [Worktree] {
