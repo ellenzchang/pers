@@ -49,6 +49,7 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var id = UUID()
     var speaker: Speaker
     var text: String
+    var images: [Data]?
 }
 
 struct SessionSnapshot: Codable {

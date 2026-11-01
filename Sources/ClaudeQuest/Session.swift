@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import Combine
 
 @MainActor
@@ -12,6 +13,7 @@ final class Session: ObservableObject, Identifiable {
     @Published var tokens: Int
     @Published var messages: [ChatMessage]
     @Published var draft = ""
+    @Published var images: [Data] = []
     @Published private(set) var inputHistory: [String] = []
     @Published var liveModel: String?
     @Published private(set) var outfit = Int.random(in: 0..<1000)
@@ -176,10 +178,12 @@ final class Session: ObservableObject, Identifiable {
     static let terminalMarker = "\u{1D}"
 
     func send(_ text: String) {
-        guard !isBusy, !text.trimmed.isEmpty else { return }
+        guard !isBusy, !text.trimmed.isEmpty || !images.isEmpty else { return }
         checkTranscript()
-        if inputHistory.last != text { inputHistory = Array((inputHistory + [text]).suffix(100)) }
-        messages.append(ChatMessage(speaker: .user, text: text))
+        if !text.trimmed.isEmpty, inputHistory.last != text { inputHistory = Array((inputHistory + [text]).suffix(100)) }
+        let attached = images
+        images = []
+        messages.append(ChatMessage(speaker: .user, text: text.trimmed, images: attached.isEmpty ? nil : attached))
         isBusy = true
         if text.hasPrefix("!") || text.hasPrefix(Self.terminalMarker) {
             isRunningShell = true
@@ -207,7 +211,10 @@ final class Session: ObservableObject, Identifiable {
         }
         self.process = process
         input = stdin.fileHandleForWriting
-        write(["type": "user", "message": ["role": "user", "content": text]])
+        let content: Any = attached.isEmpty ? text : attached.map { image in
+            ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": image.base64EncodedString()]]
+        } + (text.trimmed.isEmpty ? [] : [["type": "text", "text": text]])
+        write(["type": "user", "message": ["role": "user", "content": content]])
 
         Task {
             var gotResult = false
@@ -501,6 +508,7 @@ final class AppStore: ObservableObject {
     }
     @Published var pendingClose: WorktreeClose?
     @Published var creatingWorktree = false
+    @Published var previewImage: NSImage?
 
     private var saveSubscription: AnyCancellable?
     private var sessionSubscriptions: AnyCancellable?

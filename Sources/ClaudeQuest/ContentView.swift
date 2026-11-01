@@ -30,6 +30,11 @@ struct ContentView: View {
         .overlay {
             if let pending = store.pendingClose { WorktreeCleanupPopup(pending: pending) }
             if store.creatingWorktree { NewWorktreePopup() }
+            if let image = store.previewImage {
+                Popup(title: "IMAGE", width: 720, dismiss: { store.previewImage = nil }) {
+                    Image(nsImage: image).resizable().scaledToFit().frame(maxHeight: 480)
+                }
+            }
         }
         .background(MoonlitBackground())
         .background {

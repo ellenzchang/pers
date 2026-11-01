@@ -119,6 +119,7 @@ extension Session {
 }
 
 struct MessageRow: View {
+    @EnvironmentObject var store: AppStore
     var message: ChatMessage
     var text: String
     var hovered = false
@@ -135,11 +136,25 @@ struct MessageRow: View {
             HStack {
                 Spacer(minLength: 100)
                 bubble(name: "YOU", plate: forking ? Theme.gold : Theme.cyan, light: true, alignment: .trailing) {
-                    Text(text)
-                        .font(Theme.body)
-                        .foregroundStyle(Theme.navy)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array((message.images ?? []).enumerated()), id: \.offset) { _, data in
+                            if let image = NSImage(data: data) {
+                                Image(nsImage: image)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(maxWidth: 320, maxHeight: 220, alignment: .leading)
+                                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                                    .onTapGesture { store.previewImage = image }
+                            }
+                        }
+                        if !text.isEmpty {
+                            Text(text)
+                                .font(Theme.body)
+                                .foregroundStyle(Theme.navy)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                 }
             }
         case .claude:
@@ -257,6 +272,7 @@ struct DialogueBox: View {
                     NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
                               textColor: inTerminal ? .black : Theme.navy, morphing: true)
                     commitCounts
+                    attachments
                 }
                 .padding(.horizontal, 18)
                 .zIndex(1)
@@ -280,6 +296,7 @@ struct DialogueBox: View {
                         .foregroundStyle(isShell ? plateColor : Theme.text)
                         .scrollContentBackground(.hidden)
                         .focused($focused)
+                        .background(ImagePaste(onPaste: pasteImages))
                         .background(DraftFormatting(text: session.draft))
                         .onKeyPress(phases: [.down, .repeat], action: navigate)
                         .onKeyPress(phases: [.down, .repeat], action: choose)
@@ -561,9 +578,27 @@ struct DialogueBox: View {
         exitArmed = false
     }
 
+    private var attachments: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(session.images.enumerated()), id: \.offset) { index, data in
+                if let image = NSImage(data: data) {
+                    AttachmentThumbnail(image: image, preview: { store.previewImage = image }, remove: { session.images.remove(at: index) })
+                }
+            }
+        }
+    }
+
+    private func pasteImages() {
+        guard let images = NSPasteboard.general.readObjects(forClasses: [NSImage.self]) as? [NSImage] else { return }
+        session.images += images.compactMap { image in
+            image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:))?.representation(using: .png, properties: [:])
+        }
+    }
+
     private func send() {
-        guard !session.draft.trimmed.isEmpty else { return }
+        guard !session.draft.trimmed.isEmpty || (!session.images.isEmpty && !inTerminal) else { return }
         if isAnswering {
+            guard !session.draft.trimmed.isEmpty else { return }
             session.reply(session.draft.trimmed)
         } else if !session.isBusy {
             session.send(inTerminal ? shownEntry : session.draft)
@@ -894,6 +929,63 @@ private struct OptionalShortcut: ViewModifier {
     var key: KeyEquivalent?
     func body(content: Content) -> some View {
         if let key { content.keyboardShortcut(key, modifiers: .command) } else { content }
+    }
+}
+
+private struct AttachmentThumbnail: View {
+    var image: NSImage
+    var preview: () -> Void
+    var remove: () -> Void
+    @ViewState private var hovered = false
+
+    var body: some View {
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: 36, height: 36)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .onTapGesture(perform: preview)
+            .overlay(alignment: .bottom) {
+                if hovered {
+                    Button("Remove", action: remove)
+                        .buttonStyle(.plain)
+                        .font(Theme.ui(9, weight: .black))
+                        .foregroundStyle(Theme.ice)
+                        .frame(maxWidth: .infinity)
+                        .background(Theme.deep.opacity(0.9))
+                }
+            }
+            .onHover { hovered = $0 }
+    }
+}
+
+/// TextEditor wraps an NSTextView that handles ⌘V itself, so onPasteCommand never fires; catch the key first
+/// when the clipboard holds an image and no text.
+private struct ImagePaste: NSViewRepresentable {
+    var onPaste: () -> Void
+
+    func makeNSView(context: Context) -> NSView { Probe() }
+    func updateNSView(_ view: NSView, context: Context) { (view as? Probe)?.onPaste = onPaste }
+
+    private final class Probe: NSView {
+        var onPaste: () -> Void = {}
+        private var monitor: Any?
+
+        deinit { monitor.map(NSEvent.removeMonitor) }
+
+        override func viewDidMoveToWindow() {
+            monitor.map(NSEvent.removeMonitor)
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                let pasteboard = NSPasteboard.general
+                guard let self, event.window === window, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                      event.charactersIgnoringModifiers == "v", pasteboard.string(forType: .string) == nil,
+                      pasteboard.canReadObject(forClasses: [NSImage.self]) else { return event }
+                onPaste()
+                return nil
+            }
+        }
     }
 }
 
