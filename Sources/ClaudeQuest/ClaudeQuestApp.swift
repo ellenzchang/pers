@@ -6,7 +6,7 @@ struct ClaudeQuestApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @StateObject private var store = AppStore()
 
-    static let modelKeys: [KeyEquivalent] = ["h", "j", "k", "l"]
+    static let modelKeys: [KeyEquivalent] = ["h", "j", "k"]
 
     var body: some Scene {
         WindowGroup("Claude Quest") {

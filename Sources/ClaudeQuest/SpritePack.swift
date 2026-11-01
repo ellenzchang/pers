@@ -33,17 +33,19 @@ final class SpritePack {
         var size: CGSize
     }
 
-    /// Packs bundled into the app come first; Application Support holds extra packs added after building.
-    static let installed: SpritePack? = {
+    /// Packs by folder name. Bundled packs come first; Application Support holds extra packs added after building.
+    static let installed: [String: SpritePack] = {
         let roots = [
             Bundle.main.resourceURL?.appendingPathComponent("Sprites", isDirectory: true),
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("ClaudeQuest/Sprites", isDirectory: true),
         ].compactMap { $0 }
-        let packs = roots.flatMap { root in
-            ((try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []).sorted { $0.path < $1.path }
+        let directories = roots.flatMap { root in
+            (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
         }
-        return packs.lazy.compactMap(SpritePack.init(directory:)).first
+        return directories.reduce(into: [:]) { packs, directory in
+            if packs[directory.lastPathComponent] == nil { packs[directory.lastPathComponent] = SpritePack(directory: directory) }
+        }
     }()
 
     let manifest: Manifest

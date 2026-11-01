@@ -241,7 +241,7 @@ struct DialogueBox: View {
             if showSprite {
                 VStack(spacing: -6) {
                     // The bust is taller than its layout slot so it rises over the log, like a VN character.
-                    Portrait(mood: mood, outfit: session.outfit)
+                    Portrait(mood: mood, outfit: session.outfit, pack: SpritePack.installed[session.model.spritePack])
                         .frame(width: 210, height: 248)
                         .frame(width: 210, height: navigator.active ? 56 : 150, alignment: .bottom)
                         .allowsHitTesting(false)
@@ -336,7 +336,7 @@ struct DialogueBox: View {
                 .background(Theme.codeBackground.opacity(isShell && !inTerminal ? 0.9 : 0))
                 .panel(accent: plateColor, dark: inTerminal, padding: 16, morphing: true)
                 .overlay(alignment: .bottomTrailing) {
-                    KeyHints(hints: navigationHints + [("⌘⇧H J K L", "model"), ("⌃R", "reset"), ("⌃L", "load")])
+                    KeyHints(hints: navigationHints + [("⌘⇧H J K", "model"), ("⌃R", "reset"), ("⌃L", "load")])
                         .padding(.horizontal, 10)
                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                         .padding(.trailing, 18)

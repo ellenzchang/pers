@@ -82,6 +82,7 @@ enum Mood {
 struct Portrait: View {
     var mood: Mood
     var outfit: Int
+    var pack: SpritePack?
 
     /// Head-and-shoulders region of the 2048×2048 sprite canvas.
     private static let bust = CGRect(x: 420, y: 680, width: 1160, height: 1368)
@@ -121,7 +122,7 @@ struct Portrait: View {
 
     @ViewBuilder
     private func sprite(eyes: Int, mouth: Int) -> some View {
-        if let pack = SpritePack.installed {
+        if let pack {
             let layers = pack.layers(outfit: outfit, face: mood.face, eyes: eyes, mouth: mouth)
             Canvas { context, size in
                 let scale = min(size.width / Self.bust.width, size.height / Self.bust.height)
