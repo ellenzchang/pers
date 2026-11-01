@@ -369,6 +369,7 @@ struct DialogueBox: View {
         .animation(.easeOut(duration: 0.15), value: navigator.active)
         .background(LinearGradient(colors: [.clear, Theme.deep.opacity(0.7)], startPoint: .top, endPoint: .bottom))
         .onAppear { focused = true }
+        .onChange(of: store.showingActions) { if !store.showingActions { focused = true } }
         .onTapGesture { if session.isTalking { session.skipTyping() } }
         .sheet(isPresented: $loading) {
             LoadData(session: session)

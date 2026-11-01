@@ -12,6 +12,7 @@ struct ClaudeQuestApp: App {
                 .environmentObject(store)
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                     store.save()
+                    store.runs.forEach { $0.stop() }
                 }
         }
         .windowStyle(.hiddenTitleBar)

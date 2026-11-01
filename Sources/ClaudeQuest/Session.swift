@@ -249,7 +249,7 @@ final class Session: ObservableObject, Identifiable {
     /// shell's final directory so a `cd` carries over to the tab. Interactive (`-i`) so .zshrc's aliases,
     /// functions and PATH are available, like in the user's own terminal.
     private func runShell(_ command: String) {
-        let process = shellProcess("\(command)\nprintf '\\036%s' \"$PWD\"")
+        let process = Self.shellProcess("\(command)\nprintf '\\036%s' \"$PWD\"", in: directory)
         let out = Pipe()
         process.standardOutput = out
         process.standardError = out
@@ -262,22 +262,10 @@ final class Session: ObservableObject, Identifiable {
         }
         self.process = process
 
-        let chunks = AsyncStream<Data> { continuation in
-            out.fileHandleForReading.readabilityHandler = { handle in
-                let data = handle.availableData
-                if data.isEmpty {
-                    handle.readabilityHandler = nil
-                    continuation.finish()
-                } else {
-                    continuation.yield(data)
-                }
-            }
-        }
-
         Task {
             var data = Data()
             var messageId: UUID?
-            for await chunk in chunks {
+            for await chunk in Self.chunks(of: out) {
                 data.append(chunk)
                 let shown = Self.shellOutput(data).output.trimmed
                 guard !shown.isEmpty else { continue }
@@ -295,13 +283,27 @@ final class Session: ObservableObject, Identifiable {
         }
     }
 
-    private func shellProcess(_ script: String, _ args: [String] = []) -> Process {
+    static func shellProcess(_ script: String, _ args: [String] = [], in directory: String) -> Process {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
         process.arguments = ["-ilc", script] + args
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         process.standardInput = FileHandle.nullDevice
         return process
+    }
+
+    static func chunks(of pipe: Pipe) -> AsyncStream<Data> {
+        AsyncStream { continuation in
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                let data = handle.availableData
+                if data.isEmpty {
+                    handle.readabilityHandler = nil
+                    continuation.finish()
+                } else {
+                    continuation.yield(data)
+                }
+            }
+        }
     }
 
     /// Every terminal command runs in a fresh shell with no history, so thefuck gets the tab's previous command
@@ -311,10 +313,10 @@ final class Session: ObservableObject, Identifiable {
         guard let previous = messages.dropLast().last(where: { $0.speaker == .user && isCommand($0.text) && $0.text.dropFirst().trimmed != "fuck" })?.text.dropFirst() else {
             return finish(error: "No fucks given.")
         }
-        let process = shellProcess("""
+        let process = Self.shellProcess("""
             TF_SHELL=zsh TF_ALIAS=fuck TF_SHELL_ALIASES=$(alias) TF_HISTORY=$1 \
             THEFUCK_REQUIRE_CONFIRMATION=false PYTHONIOENCODING=utf-8 thefuck THEFUCK_ARGUMENT_PLACEHOLDER
-            """, ["fuck", String(previous)])
+            """, ["fuck", String(previous)], in: directory)
         let out = Pipe()
         process.standardOutput = out
         process.standardError = FileHandle.nullDevice
@@ -515,20 +517,27 @@ final class AppStore: ObservableObject {
     @Published var pendingClose: WorktreeClose?
     @Published var creatingWorktree = false
     @Published var previewImage: NSImage?
+    @Published var showingActions = false
+    @Published var actions: [Action] = [] { didSet { saveActions() } }
+    @Published var runs: [ActionRun] = []
 
     private var saveSubscription: AnyCancellable?
     private var sessionSubscriptions: AnyCancellable?
     private var layoutSubscription: AnyCancellable?
     private var unreadSubscription: AnyCancellable?
+    private var runsSubscription: AnyCancellable?
+    private var runStateSubscriptions: AnyCancellable?
 
     private static let selectedKey = "selectedSession"
 
-    private static let saveURL: URL = {
+    private static let supportDirectory: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("ClaudeQuest", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("tabs.json")
+        return dir
     }()
+    private static let saveURL = supportDirectory.appendingPathComponent("tabs.json")
+    static let actionsURL = supportDirectory.appendingPathComponent("actions.json")
 
     init() {
         if let data = try? Data(contentsOf: Self.saveURL),
@@ -538,6 +547,14 @@ final class AppStore: ObservableObject {
         if sessions.isEmpty { sessions = [Session(directory: NSHomeDirectory())] }
         let lastSelected = UserDefaults.standard.string(forKey: Self.selectedKey).flatMap(UUID.init)
         selectedId = sessions.first { $0.id == lastSelected }?.id ?? sessions.first?.id
+        if let data = try? Data(contentsOf: Self.actionsURL) {
+            actions = (try? JSONDecoder().decode([Action].self, from: data)) ?? []
+        }
+        // Output streams in constantly, so only state changes are forwarded to views observing the store.
+        runsSubscription = $runs.sink { [weak self] runs in
+            self?.runStateSubscriptions = Publishers.MergeMany(runs.map { $0.$state.map { _ in } })
+                .sink { [weak self] in self?.objectWillChange.send() }
+        }
 
         saveSubscription = $sessions.sink { [weak self] sessions in
             self?.sessionSubscriptions = Publishers.MergeMany(sessions.map(\.objectWillChange))
@@ -633,6 +650,9 @@ final class AppStore: ObservableObject {
 
     private func closeTab(_ session: Session) {
         session.stop()
+        if !sessions.contains(where: { $0.id != session.id && $0.directory == session.directory }) {
+            runs.filter { $0.directory == session.directory }.forEach(dismiss)
+        }
         guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
         sessions.remove(at: index)
         if sessions.isEmpty { sessions = [Session(directory: NSHomeDirectory())] }

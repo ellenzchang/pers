@@ -5,7 +5,7 @@ struct SessionOverview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            KeyHints(hints: [("⌘1 ⌘2", "tab"), ("⌘T", "new"), ("⇧⌘T", "worktree"), ("⌘W", "close")])
+            KeyHints(hints: [("⌘1 ⌘2", "tab"), ("⌘T", "new"), ("⇧⌘T", "worktree"), ("⌘W", "close"), ("⇧⌘A", "actions")])
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(store.repos) { repo in
@@ -45,6 +45,9 @@ private struct OverviewRow: View {
                         .font(Theme.ui(12))
                         .opacity(0.7)
                         .lineLimit(1)
+                }
+                ForEach(store.runs.filter { $0.directory == session.directory }) { run in
+                    RunLine(run: run, highlighted: highlighted)
                 }
             }
             Spacer(minLength: 0)

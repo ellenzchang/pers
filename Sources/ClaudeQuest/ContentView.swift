@@ -28,6 +28,14 @@ struct ContentView: View {
             .padding(.leading, 18)
             .padding(.bottom, 250)
         }
+        .overlay(alignment: .topTrailing) {
+            if store.showingActions, let session = store.selected {
+                ActionPanel(session: session)
+                    .padding(.top, 90)
+                    .padding(.trailing, 18)
+                    .padding(.bottom, 250)
+            }
+        }
         .overlay {
             if let pending = store.pendingClose { WorktreeCleanupPopup(pending: pending) }
             if store.creatingWorktree { NewWorktreePopup() }
@@ -43,6 +51,10 @@ struct ContentView: View {
         .background {
             Button("") { showSprite.toggle() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
+                .opacity(0)
+                .allowsHitTesting(false)
+            Button("") { store.showingActions.toggle() }
+                .keyboardShortcut("a", modifiers: [.command, .shift])
                 .opacity(0)
                 .allowsHitTesting(false)
             Button("") { openDiffFileInIntelliJ() }
