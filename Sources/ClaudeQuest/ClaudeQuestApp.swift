@@ -27,6 +27,7 @@ struct ClaudeQuestApp: App {
                 Divider()
                 Button("Toggle Diff") { store.selected?.toggleDiff() }.keyboardShortcut("d")
                 Button("Toggle Diff Base") { store.selected?.toggleDiffBase() }.keyboardShortcut("e", modifiers: [.command, .shift])
+                Button("Toggle Git Log") { store.selected?.toggleLog() }.keyboardShortcut("l")
                 Button("Previous Tab") { cycleTab(by: -1) }.keyboardShortcut("1")
                 Button("Next Tab") { cycleTab(by: 1) }.keyboardShortcut("2")
             }

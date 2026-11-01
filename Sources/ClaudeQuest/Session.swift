@@ -21,6 +21,8 @@ final class Session: ObservableObject, Identifiable {
     @Published var showingDiff = false
     @Published private(set) var diffBase = DiffBase.unstaged
     @Published private(set) var diff: [FileDiff] = []
+    @Published private(set) var showingLog = false
+    @Published private(set) var commits: [Commit] = []
     @Published private(set) var isBusy = false
     @Published private(set) var isRunningShell = false
     @Published private(set) var typingId: UUID?
@@ -102,8 +104,20 @@ final class Session: ObservableObject, Identifiable {
         }
     }
 
+    func toggleLog() {
+        showingLog.toggle()
+        guard showingLog else { return }
+        showingDiff = false
+        let directory = directory
+        Task.detached {
+            let commits = Git.log(at: directory)
+            await MainActor.run { self.commits = commits }
+        }
+    }
+
     func toggleDiff() {
         showingDiff.toggle()
+        if showingDiff { showingLog = false }
         if showingDiff { loadDiff() }
     }
 

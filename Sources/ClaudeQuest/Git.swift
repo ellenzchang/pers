@@ -31,6 +31,13 @@ struct FileDiff: Identifiable, Equatable {
     var removed: Int { lines.filter { $0.kind == .removed }.count }
 }
 
+struct Commit: Identifiable, Equatable {
+    var id: String
+    var subject: String
+    var author: String
+    var age: String
+}
+
 struct GitInfo: Equatable {
     var branch: String
     var changedFiles: Int
@@ -72,6 +79,14 @@ enum Git {
             var results: [(Int, FileDiff)] = []
             for await result in group { results.append(result) }
             return results.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+    }
+
+    static func log(at directory: String) -> [Commit] {
+        let output = run(["log", "-200", "--format=%h%x1f%s%x1f%an%x1f%cr"], in: directory) ?? ""
+        return output.split(separator: "\n").compactMap { line in
+            let fields = line.components(separatedBy: "\u{1F}")
+            return fields.count == 4 ? Commit(id: fields[0], subject: fields[1], author: fields[2], age: fields[3]) : nil
         }
     }
 

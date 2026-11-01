@@ -379,9 +379,10 @@ struct DialogueBox: View {
 
     private var navigationHints: [(key: String, action: String)] {
         let diffToggle = ("⌘D", session.showingDiff ? "close diff" : "diff")
-        let diffControls = [("⇧⌘E", session.diffBase == .unstaged ? "vs main" : "unstaged"), ("⇧⌘O", "IntelliJ"), diffToggle]
+        let logToggle = ("⌘L", session.showingLog ? "close log" : "log")
+        let diffControls = [("⇧⌘E", session.diffBase == .unstaged ? "vs main" : "unstaged"), ("⇧⌘O", "IntelliJ"), diffToggle, logToggle]
         guard navigator.active else {
-            let toggles = session.showingDiff ? diffControls : [diffToggle]
+            let toggles = session.showingDiff ? diffControls : [diffToggle, logToggle]
             if isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
             return choosing ? [("↑ ↓", "choose"), ("⏎", "select")] + toggles : toggles
         }

@@ -85,13 +85,43 @@ private struct MainPanel: View {
     var navigator: Navigator
 
     var body: some View {
-        if session.showingDiff {
+        if session.showingLog {
+            CommitLog(commits: session.commits)
+        } else if session.showingDiff {
             DiffView(session: session, scroller: scroller, navigator: navigator)
         } else {
             MessageLog(session: session, scroller: scroller, navigator: navigator)
                 .id(session.logIdentity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+private struct CommitLog: View {
+    var commits: [Commit]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Color.clear.frame(width: 230)
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(commits) { commit in
+                        HStack(spacing: 12) {
+                            Text(commit.id).foregroundStyle(Theme.gold)
+                            Text(commit.subject).foregroundStyle(Theme.text).lineLimit(1)
+                            Spacer(minLength: 12)
+                            Text("\(commit.author) · \(commit.age)").foregroundStyle(Theme.dim)
+                        }
+                        .font(Theme.code)
+                        .padding(.vertical, 3)
+                    }
+                }
+                .padding(12)
+            }
+            .defaultScrollAnchor(.top)
+            .background(Theme.codeBackground)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
