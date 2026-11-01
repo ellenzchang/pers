@@ -133,10 +133,7 @@ struct StatusHUD: View {
     var body: some View {
         HStack(alignment: .center, spacing: 18) {
             Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: 8) {
-                HStack(spacing: 8) { locationRow }
-                HStack(spacing: 8) { settingsRow }
-            }
+            HStack(spacing: 8) { settingsRow }
         }
         .padding(.horizontal, 18)
         .padding(.top, 16)
@@ -148,17 +145,6 @@ struct StatusHUD: View {
                 .opacity(0)
                 .allowsHitTesting(false)
         }
-    }
-
-    @ViewBuilder
-    private var locationRow: some View {
-        Button(action: chooseDirectory) {
-            Chip(color: Theme.ice) { Text("▸ \(abbreviated(session.directory))").lineLimit(1).truncationMode(.head) }
-        }
-        .buttonStyle(.plain)
-        .help(session.directory)
-
-        gitSection
     }
 
     @ViewBuilder
@@ -183,52 +169,6 @@ struct StatusHUD: View {
     static func compact(_ tokens: Int) -> String {
         if tokens >= 1_000_000 { return String(format: "%.1fM", Double(tokens) / 1_000_000).replacingOccurrences(of: ".0M", with: "M") }
         return tokens < 1000 ? "\(tokens)" : String(format: "%.1fk", Double(tokens) / 1000)
-    }
-
-    @ViewBuilder
-    private var gitSection: some View {
-        if let git = session.git {
-            Menu {
-                Section("Worktrees") {
-                    ForEach(git.worktrees) { worktree in
-                        Menu("\(worktree.path == session.directory ? "▶ " : "")\(worktree.name)  [\(worktree.branch ?? "detached")]") {
-                            Button("Switch this tab") { session.directory = worktree.path }
-                            Button("Open in new tab") { store.newTab(directory: worktree.path) }
-                        }
-                    }
-                }
-                Divider()
-                Button("New worktree…", action: promptForWorktree)
-                Button("Refresh") { session.refreshGit() }
-            } label: {
-                Chip(color: Theme.aqua) {
-                    HStack(spacing: 6) {
-                        Text("⎇ \(git.branch)")
-                        if git.changedFiles > 0 { Text("●\(git.changedFiles)").foregroundStyle(Theme.gold) }
-                        if git.ahead > 0 { Text("↑\(git.ahead)") }
-                        if git.behind > 0 { Text("↓\(git.behind)") }
-                        if git.worktrees.count > 1 { Text("🌳\(git.worktrees.count)") }
-                    }
-                }
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .fixedSize()
-        } else {
-            Chip(color: Theme.dim) { Text("no git") }
-        }
-    }
-
-    private func abbreviated(_ path: String) -> String {
-        path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
-    }
-
-    private func chooseDirectory() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.directoryURL = URL(fileURLWithPath: session.directory)
-        if panel.runModal() == .OK, let url = panel.url { session.directory = url.path }
     }
 
     private func promptForWorktree() {

@@ -44,19 +44,22 @@ private struct OverviewRow: View {
                 Text(tabTitle ?? session.title)
                     .font(Theme.ui(15, weight: .bold))
                     .lineLimit(1)
-                if let branch = session.git?.branch {
-                    Text(branch)
-                        .font(Theme.ui(12))
-                        .opacity(0.7)
-                        .lineLimit(1)
+                HStack(spacing: 4) {
+                    if let branch = session.git?.branch {
+                        Text(branch)
+                            .font(Theme.ui(12))
+                            .opacity(0.7)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    if session.hasUnread { tag("NEW") }
+                    if session.forkedFrom != nil { tag("FORK") }
                 }
                 ForEach(store.runs.filter { $0.directory == session.directory }) { run in
                     RunLine(run: run, highlighted: highlighted)
                 }
             }
             Spacer(minLength: 0)
-            if session.hasUnread { tag("NEW") }
-            if session.forkedFrom != nil { tag("FORK") }
             if hovered {
                 Button { store.close(session) } label: { Text("×") }
                     .buttonStyle(.plain)
