@@ -261,8 +261,8 @@ final class Session: ObservableObject, Identifiable {
             } catch {}
             process.waitUntilExit()
             let stderr = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmed
-            if process.terminationReason == .uncaughtSignal {
-                finish(error: "Interrupted.")
+            if process.terminationReason == .uncaughtSignal || process.terminationStatus == 143 {
+                finish(error: "Claude was interrupted.")
             } else if !gotResult {
                 finish(error: stderr.isEmpty ? "claude exited with status \(process.terminationStatus)" : stderr)
             } else {
