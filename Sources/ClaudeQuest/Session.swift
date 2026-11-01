@@ -540,6 +540,7 @@ final class AppStore: ObservableObject {
     private var layoutSubscription: AnyCancellable?
     private var unreadSubscription: AnyCancellable?
     private var runsSubscription: AnyCancellable?
+    var actionsWatcher: DispatchSourceFileSystemObject?
     private var runStateSubscriptions: AnyCancellable?
 
     private static let selectedKey = "selectedSession"
@@ -561,9 +562,8 @@ final class AppStore: ObservableObject {
         if sessions.isEmpty { sessions = [Session(directory: NSHomeDirectory())] }
         let lastSelected = UserDefaults.standard.string(forKey: Self.selectedKey).flatMap(UUID.init)
         selectedId = sessions.first { $0.id == lastSelected }?.id ?? sessions.first?.id
-        if let data = try? Data(contentsOf: Self.actionsURL) {
-            actions = (try? JSONDecoder().decode([Action].self, from: data)) ?? []
-        }
+        reloadActions()
+        watchActions()
         // Output streams in constantly, so only state changes are forwarded to views observing the store.
         runsSubscription = $runs.sink { [weak self] runs in
             self?.runStateSubscriptions = Publishers.MergeMany(runs.map { $0.$state.map { _ in } })
