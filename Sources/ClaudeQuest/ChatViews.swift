@@ -276,8 +276,10 @@ struct DialogueBox: View {
             VStack(alignment: .leading, spacing: -8) {
                 HStack(spacing: 10) {
                     HStack(spacing: 0) {
-                        NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
-                                  textColor: inTerminal ? .black : Theme.navy, morphing: true)
+                        TimelineView(.periodic(from: .now, by: 0.4)) { timeline in
+                            NamePlate(name: heading(at: timeline.date), color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
+                                      textColor: inTerminal ? .black : Theme.navy, morphing: true)
+                        }
                         StatusLine(session: session)
                     }
                     attachments
@@ -477,10 +479,13 @@ struct DialogueBox: View {
         return .handled
     }
 
-    private var heading: String {
+    private func heading(at date: Date) -> String {
         if navigator.active { return "NAVIGATE" }
         if isAnswering { return "YOUR ANSWER" }
-        if session.isBusy && !session.isRunningShell { return "CLAUDE IS THINKING…" }
+        if session.isBusy && !session.isRunningShell {
+            let dots = Int(date.timeIntervalSinceReferenceDate / 0.4) % 4
+            return "CLAUDE IS THINKING" + String(repeating: ".", count: dots) + String(repeating: "\u{2007}", count: 3 - dots)
+        }
         if let historyIndex {
             return (inTerminal ? "TERMINAL " : "") + "HISTORY \(historyIndex + 1)/\(session.inputHistory.count)"
         }
