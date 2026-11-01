@@ -50,6 +50,12 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var speaker: Speaker
     var text: String
     var images: [Data]?
+    var edits: [Edit]?
+
+    struct Edit: Codable, Equatable {
+        var old: String
+        var new: String
+    }
 }
 
 struct SessionSnapshot: Codable {

@@ -573,11 +573,20 @@ final class Session: ObservableObject, Identifiable {
             return ChatMessage(speaker: .claude, text: text)
         case "tool_use":
             let name = block["name"] as? String ?? "tool"
-            let detail = detail(of: block["input"] as? [String: Any] ?? [:])
-            return ChatMessage(speaker: .tool, text: "\(name)\t\(detail)")
+            let input = block["input"] as? [String: Any] ?? [:]
+            return ChatMessage(speaker: .tool, text: "\(name)\t\(detail(of: input))", edits: edits(of: input))
         default:
             return nil
         }
+    }
+
+    nonisolated static func edits(of input: [String: Any]) -> [ChatMessage.Edit]? {
+        if let content = input["content"] as? String { return [.init(old: "", new: content)] }
+        let edits = input["edits"] as? [[String: Any]] ?? [input]
+        let found = edits.compactMap { edit in
+            (edit["new_string"] as? String).map { ChatMessage.Edit(old: edit["old_string"] as? String ?? "", new: $0) }
+        }
+        return found.isEmpty ? nil : found
     }
 
     nonisolated static func detail(of input: [String: Any]) -> String {

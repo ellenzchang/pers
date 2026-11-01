@@ -118,6 +118,29 @@ extension Session {
     }
 }
 
+private struct EditDiff: View {
+    var edits: [ChatMessage.Edit]
+    private static let maxLines = 40
+
+    var body: some View {
+        let rows = edits.flatMap { Git.rows(replacing: $0.old, with: $0.new) }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(rows.prefix(Self.maxLines).enumerated()), id: \.offset) { _, row in
+                DiffLine(row: row, numbered: false, selected: false, pinned: false) {}
+            }
+            if rows.count > Self.maxLines {
+                Text("\u{2026} \(rows.count - Self.maxLines) more lines")
+                    .font(Theme.code)
+                    .foregroundStyle(Theme.dim)
+                    .padding(8)
+            }
+        }
+        .background(Theme.codeBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .textSelection(.enabled)
+    }
+}
+
 struct MessageRow: View {
     @EnvironmentObject var store: AppStore
     var message: ChatMessage
@@ -173,7 +196,10 @@ struct MessageRow: View {
             }
         case .tool:
             let parts = text.split(separator: "\t", maxSplits: 1).map(String.init)
-            toolRow(name: parts.first?.uppercased() ?? "TOOL", detail: parts.count > 1 ? parts[1] : nil)
+            VStack(alignment: .leading, spacing: 6) {
+                toolRow(name: parts.first?.uppercased() ?? "TOOL", detail: parts.count > 1 ? parts[1] : nil)
+                if let edits = message.edits { EditDiff(edits: edits).padding(.leading, 18) }
+            }
         case .shell:
             CodeBlock(language: "shell", code: text)
                 .padding(.leading, 18)

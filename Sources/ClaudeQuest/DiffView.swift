@@ -83,8 +83,9 @@ private struct DiffHeader: View {
     }
 }
 
-private struct DiffLine: View {
+struct DiffLine: View {
     var row: DiffRow
+    var numbered = true
     var selected: Bool
     var pinned: Bool
     var onTap: () -> Void
@@ -117,8 +118,10 @@ private struct DiffLine: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            gutter(row.oldNumber)
-            gutter(row.newNumber)
+            if numbered {
+                gutter(row.oldNumber)
+                gutter(row.newNumber)
+            }
             Text(code).padding(.leading, 8).frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(hovering || selected ? Theme.cyan.opacity(0.2) : .clear)

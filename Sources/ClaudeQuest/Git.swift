@@ -135,6 +135,14 @@ enum Git {
         Int(range.dropFirst().prefix { $0.isNumber }) ?? 0
     }
 
+    /// Builds diff rows from raw old and new text, as shown inline under Edit and Write tool rows in the chat.
+    static func rows(replacing old: String, with new: String) -> [DiffRow] {
+        func lines(_ text: String) -> [Substring] { text.isEmpty ? [] : text.split(separator: "\n", omittingEmptySubsequences: false) }
+        var rows = lines(old).map { DiffRow(kind: .removed, text: String($0)) } + lines(new).map { DiffRow(kind: .added, text: String($0)) }
+        markWordChanges(in: &rows)
+        return rows
+    }
+
     /// Pairs each removed line with the added line at the same position in its block, like GitHub's inline highlights.
     private static func markWordChanges(in rows: inout [DiffRow]) {
         var index = 0
