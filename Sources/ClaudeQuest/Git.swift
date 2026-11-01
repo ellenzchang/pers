@@ -29,6 +29,14 @@ struct FileDiff: Identifiable, Equatable {
     var id: String { path }
     var added: Int { lines.filter { $0.kind == .added }.count }
     var removed: Int { lines.filter { $0.kind == .removed }.count }
+
+    func reference(to row: DiffRow) -> String? {
+        switch row.kind {
+        case .hunk: nil
+        case .removed: row.oldNumber.map { "\(path):\($0) (removed)" }
+        case .added, .context: row.newNumber.map { "\(path):\($0)" }
+        }
+    }
 }
 
 struct Commit: Identifiable, Equatable {
@@ -41,7 +49,9 @@ struct Commit: Identifiable, Equatable {
 struct GitInfo: Equatable {
     var branch: String
     var changedFiles: Int
+    var staged: Int
     var unstaged: Int
+    var untracked: Int
     var ahead: Int
     var behind: Int
     var root: String
@@ -54,10 +64,13 @@ enum Git {
         let status = run(["status", "--porcelain=v1", "--branch"], in: directory) ?? ""
         let lines = status.split(separator: "\n").map(String.init)
         let header = lines.first ?? ""
+        let files = lines.dropFirst()
         return GitInfo(
             branch: run(["branch", "--show-current"], in: directory)?.trimmed.nilIfEmpty ?? "detached",
             changedFiles: max(lines.count - 1, 0),
-            unstaged: lines.dropFirst().filter { $0.dropFirst().first != " " }.count,
+            staged: files.filter { !" ?".contains($0.first ?? " ") }.count,
+            unstaged: files.filter { $0.first != "?" && $0.dropFirst().first != " " }.count,
+            untracked: files.filter { $0.hasPrefix("??") }.count,
             ahead: count(of: "ahead", in: header),
             behind: count(of: "behind", in: header),
             root: root,

@@ -163,41 +163,9 @@ struct StatusHUD: View {
 
     @ViewBuilder
     private var settingsRow: some View {
-        HStack(spacing: 2) {
-            ForEach(ClaudeModel.allCases) { model in
-                Button { session.model = model } label: { Chip(active: session.model == model, color: Theme.ice) { Text(model.label) } }
-                    .buttonStyle(.plain)
-            }
-        }
-        .help(session.liveModel.map { "Last run: \($0)" } ?? "Model for the next message")
-
-        Menu {
-            Picker("Mode", selection: $session.mode) {
-                ForEach(PermissionMode.allCases) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Chip(color: modeColor) { Text("MODE \(session.mode.label)") }
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .fixedSize()
-
-        Menu {
-            Picker("Effort", selection: $session.effort) {
-                Text("DEFAULT").tag(Effort?.none)
-                ForEach(Effort.allCases) { Text($0.label).tag(Effort?.some($0)) }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Chip(color: Theme.cyan) { Text("EFFORT \(session.effort?.label ?? "DEFAULT")") }
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .fixedSize()
-
-        Chip(color: Theme.gold) { Text(Self.compact(session.tokens)) }
-            .help("Tokens used in this session (input, output and cache)")
+        Button { session.advising.toggle() } label: { Chip(active: session.advising, color: Theme.gold) { Text("ADVISOR") } }
+            .buttonStyle(.plain)
+            .help("A second model (Sonnet) reviews each finished turn; its notes go to Claude with your next message")
 
         Menu {
             Picker("Theme", selection: $style) {
@@ -212,8 +180,9 @@ struct StatusHUD: View {
         .fixedSize()
     }
 
-    private static func compact(_ tokens: Int) -> String {
-        tokens < 1000 ? "\(tokens) TOKENS" : String(format: "%.1fk TOKENS", Double(tokens) / 1000)
+    static func compact(_ tokens: Int) -> String {
+        if tokens >= 1_000_000 { return String(format: "%.1fM", Double(tokens) / 1_000_000).replacingOccurrences(of: ".0M", with: "M") }
+        return tokens < 1000 ? "\(tokens)" : String(format: "%.1fk", Double(tokens) / 1000)
     }
 
     @ViewBuilder
@@ -250,15 +219,6 @@ struct StatusHUD: View {
         }
     }
 
-    private var modeColor: Color {
-        switch session.mode {
-        case .bypassPermissions, .dontAsk: Theme.red
-        case .plan: Theme.cyan
-        case .auto, .acceptEdits: Theme.aqua
-        case .manual: Theme.text
-        }
-    }
-
     private func abbreviated(_ path: String) -> String {
         path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
     }
@@ -274,5 +234,68 @@ struct StatusHUD: View {
     private func promptForWorktree() {
         guard session.git != nil else { return }
         store.creatingWorktree = true
+    }
+}
+
+/// The session at a glance beside the input: model and effort, mode, git state and how full the context window is.
+struct StatusLine: View {
+    @ObservedObject var session: Session
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(session.model.label + (session.effort.map { " · \($0.label)" } ?? "")).foregroundStyle(Theme.ice)
+            separator
+            Text(session.mode.label).foregroundStyle(session.mode.color)
+            if let git = session.git {
+                separator
+                gitStatus(git)
+            }
+            if let used = session.contextTokens {
+                separator
+                context(used)
+            }
+        }
+        .font(Theme.ui(12, weight: .bold))
+        .lineLimit(1)
+    }
+
+    private var separator: some View { Text("│").foregroundStyle(Theme.dim) }
+
+    private func gitStatus(_ git: GitInfo) -> some View {
+        HStack(spacing: 6) {
+            Text("⎇ \(git.branch)").foregroundStyle(git.changedFiles > 0 ? Theme.gold : Theme.green)
+            if git.unstaged > 0 { Text("*\(git.unstaged)").foregroundStyle(Theme.gold) }
+            if git.staged > 0 { Text("+\(git.staged)").foregroundStyle(Theme.green) }
+            if git.untracked > 0 { Text("?\(git.untracked)").foregroundStyle(Theme.pink) }
+            if git.ahead > 0 { Text("↑\(git.ahead)").foregroundStyle(Theme.cyan) }
+            if git.behind > 0 { Text("↓\(git.behind)").foregroundStyle(Theme.cyan) }
+        }
+        .help("* unstaged  + staged  ? untracked  ↑ ahead  ↓ behind")
+    }
+
+    @ViewBuilder
+    private func context(_ used: Int) -> some View {
+        if let window = session.contextWindow, window > 0 {
+            let percent = used * 100 / window
+            HStack(spacing: 4) {
+                Text("◔ \(percent)%").foregroundStyle(percent >= 80 ? Theme.red : percent >= 50 ? Theme.gold : Theme.green)
+                Text("of \(StatusHUD.compact(window))").foregroundStyle(Theme.dim)
+            }
+            .help("\(StatusHUD.compact(used)) of \(StatusHUD.compact(window)) context tokens used")
+        } else {
+            Text("◔ \(StatusHUD.compact(used))").foregroundStyle(Theme.dim)
+                .help("Context tokens used; the window size shows after the next reply")
+        }
+    }
+}
+
+extension PermissionMode {
+    var color: Color {
+        switch self {
+        case .bypassPermissions, .dontAsk: Theme.red
+        case .plan: Theme.cyan
+        case .auto, .acceptEdits: Theme.aqua
+        case .manual: Theme.text
+        }
     }
 }

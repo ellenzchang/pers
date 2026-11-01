@@ -42,7 +42,7 @@ enum Effort: String, CaseIterable, Codable, Identifiable {
 }
 
 enum Speaker: String, Codable {
-    case user, claude, tool, shell, system
+    case user, claude, tool, shell, system, advisor
 }
 
 struct ChatMessage: Identifiable, Codable, Equatable {
@@ -59,7 +59,10 @@ struct SessionSnapshot: Codable {
     var model: ClaudeModel
     var mode: PermissionMode
     var effort: Effort?
+    var advising: Bool?
     var tokens: Int?
+    var contextTokens: Int?
+    var contextWindow: Int?
     var messages: [ChatMessage]
     var outfit: Int?
     var draft: String?

@@ -12,7 +12,7 @@ struct WorktreeCleanupPopup: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 if let git = pending.git, git.changedFiles > 0 {
-                    line("\(git.changedFiles) uncommitted \(git.changedFiles == 1 ? "file" : "files")", detail: git.unstaged > 0 ? "\(git.unstaged) unstaged" : nil)
+                    line("\(git.changedFiles) uncommitted \(git.changedFiles == 1 ? "file" : "files")", detail: git.unstaged + git.untracked > 0 ? "\(git.unstaged + git.untracked) unstaged" : nil)
                 }
                 if pending.unpushed > 0 {
                     line("\(pending.unpushed) unpushed \(pending.unpushed == 1 ? "commit" : "commits")", detail: "branch is kept")

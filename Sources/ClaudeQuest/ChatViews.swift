@@ -164,6 +164,13 @@ struct MessageRow: View {
                 }
                 Spacer(minLength: 40)
             }
+        case .advisor:
+            HStack {
+                bubble(name: "ADVISOR", plate: Theme.gold, light: false, alignment: .leading) {
+                    MarkdownView(text: text)
+                }
+                Spacer(minLength: 120)
+            }
         case .tool:
             let parts = text.split(separator: "\t", maxSplits: 1).map(String.init)
             toolRow(name: parts.first?.uppercased() ?? "TOOL", detail: parts.count > 1 ? parts[1] : nil)
@@ -270,7 +277,7 @@ struct DialogueBox: View {
                 HStack(spacing: 10) {
                     NamePlate(name: heading, color: plateColor, shadowColor: inTerminal ? .black : Theme.ocean,
                               textColor: inTerminal ? .black : Theme.navy, morphing: true)
-                    commitCounts
+                    StatusLine(session: session)
                     attachments
                 }
                 .padding(.horizontal, 18)
@@ -352,7 +359,7 @@ struct DialogueBox: View {
                 .background(Theme.codeBackground.opacity(isShell && !inTerminal ? 0.9 : 0))
                 .panel(accent: plateColor, dark: inTerminal, padding: 16, morphing: true)
                 .overlay(alignment: .bottomTrailing) {
-                    KeyHints(hints: navigationHints + [("⌘J K", "model"), ("⌃R", "reset"), ("⌃L", "load")])
+                    KeyHints(hints: navigationHints + [("⌘J K", "model"), ("⇧⌘M", "mode"), ("⇧⌘E", "effort"), ("⌃R", "reset"), ("⌃L", "load")])
                         .padding(.horizontal, 10)
                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                         .padding(.trailing, 18)
@@ -380,7 +387,7 @@ struct DialogueBox: View {
     private var navigationHints: [(key: String, action: String)] {
         let diffToggle = ("⌘D", session.showingDiff ? "close diff" : "diff")
         let logToggle = ("⌘L", session.showingLog ? "close log" : "log")
-        let diffControls = [("⇧⌘E", session.diffBase == .unstaged ? "vs main" : "unstaged"), ("⇧⌘O", "IntelliJ"), diffToggle, logToggle]
+        let diffControls = [("⇧⌘B", session.diffBase == .unstaged ? "vs main" : "unstaged"), ("⇧⌘O", "IntelliJ"), diffToggle, logToggle]
         guard navigator.active else {
             let toggles = session.showingDiff ? diffControls : [diffToggle, logToggle]
             if isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
@@ -461,25 +468,11 @@ struct DialogueBox: View {
             }
         case (.return, _):
             if inDiff, let file = navigator.file(in: diff) {
-                session.quote(file.lines[navigator.line(in: diff)].text)
+                session.quote(file.lines[navigator.line(in: diff)], in: file)
             }
         default: break
         }
         return .handled
-    }
-
-    @ViewBuilder
-    private var commitCounts: some View {
-        if let git = session.git, git.unstaged > 0 || git.ahead > 0 || git.behind > 0 {
-            HStack(spacing: 8) {
-                if git.unstaged > 0 { Text("!\(git.unstaged)") }
-                if git.ahead > 0 { Text("↑\(git.ahead)") }
-                if git.behind > 0 { Text("↓\(git.behind)") }
-            }
-            .font(Theme.ui(12, weight: .bold))
-            .foregroundStyle(inTerminal ? Theme.green : Theme.cyan)
-            .allowsHitTesting(false)
-        }
     }
 
     private var heading: String {

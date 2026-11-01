@@ -19,7 +19,9 @@ struct DiffView: View {
                         ScrollView([.horizontal, .vertical]) {
                             LazyVStack(alignment: .leading, spacing: 0) {
                                 ForEach(Array(current.lines.enumerated()), id: \.offset) { index, line in
-                                    DiffLine(row: line, selected: index == cursor) { session.quote($0) }
+                                    DiffLine(row: line, selected: index == cursor, pinned: session.isQuoted(line, in: current)) {
+                                        session.quote(line, in: current)
+                                    }
                                 }
                             }
                             .scrollTargetLayout()
@@ -84,7 +86,8 @@ private struct DiffHeader: View {
 private struct DiffLine: View {
     var row: DiffRow
     var selected: Bool
-    var onTap: (String) -> Void
+    var pinned: Bool
+    var onTap: () -> Void
     @ViewState private var hovering = false
 
     private static let hunkColor = Color(hex: 0x5C8DFF)
@@ -120,9 +123,10 @@ private struct DiffLine: View {
         }
         .background(hovering || selected ? Theme.cyan.opacity(0.2) : .clear)
         .background(tint?.opacity(row.kind == .hunk ? 0.12 : 0.15) ?? .clear)
+        .overlay(alignment: .leading) { if pinned { Theme.gold.frame(width: 3) } }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
-        .onTapGesture { onTap(row.text) }
+        .onTapGesture(perform: onTap)
     }
 
     private func gutter(_ number: Int?) -> some View {

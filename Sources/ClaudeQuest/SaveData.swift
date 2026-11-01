@@ -94,11 +94,14 @@ enum SaveData {
         }
     }
 
-    /// Tool results, skill text, and `<bash-input>`-style command wrappers are also stored as user turns.
+    /// Tool results, skill text, interruptions and `<bash-input>`-style command wrappers are also stored as user turns.
+    /// Prompts sent with images or advisor notes are stored as blocks, with the typed text last.
     private static func prompt(in event: [String: Any]) -> String? {
+        let content = (event["message"] as? [String: Any])?["content"]
+        let blocks = content as? [[String: Any]] ?? []
         guard event["isMeta"] as? Bool != true,
-              let text = ((event["message"] as? [String: Any])?["content"] as? String)?.trimmed,
-              !text.isEmpty, !text.hasPrefix("<") else { return nil }
+              let text = (content as? String ?? blocks.last { $0["type"] as? String == "text" }?["text"] as? String)?.trimmed,
+              !text.isEmpty, !text.hasPrefix("<"), !text.hasPrefix("[Request interrupted") else { return nil }
         return text
     }
 

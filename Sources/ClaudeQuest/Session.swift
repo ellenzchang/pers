@@ -10,7 +10,10 @@ final class Session: ObservableObject, Identifiable {
     @Published var model: ClaudeModel
     @Published var mode: PermissionMode
     @Published var effort: Effort?
+    @Published var advising = false
     @Published var tokens: Int
+    @Published private(set) var contextTokens: Int?
+    @Published private(set) var contextWindow: Int?
     @Published var messages: [ChatMessage]
     @Published var draft = ""
     @Published var images: [Data] = []
@@ -37,6 +40,8 @@ final class Session: ObservableObject, Identifiable {
     private var input: FileHandle?
     private var typer: Timer?
     private var fix: String?
+    private var advisor: Process?
+    private var pendingAdvice: [String] = []
 
     init(directory: String, model: ClaudeModel = .sonnet, mode: PermissionMode = .acceptEdits) {
         id = UUID()
@@ -55,7 +60,10 @@ final class Session: ObservableObject, Identifiable {
         model = snapshot.model
         mode = snapshot.mode
         effort = snapshot.effort
+        advising = snapshot.advising ?? false
         tokens = snapshot.tokens ?? 0
+        contextTokens = snapshot.contextTokens
+        contextWindow = snapshot.contextWindow
         messages = snapshot.messages
         draft = snapshot.draft ?? ""
         inputHistory = snapshot.inputHistory ?? []
@@ -74,6 +82,7 @@ final class Session: ObservableObject, Identifiable {
         model = parent.model
         mode = parent.mode
         effort = parent.effort
+        advising = parent.advising
         tokens = 0
         self.messages = messages
         forkedFrom = parent.id
@@ -83,7 +92,8 @@ final class Session: ObservableObject, Identifiable {
 
     var snapshot: SessionSnapshot {
         SessionSnapshot(id: id, directory: directory, sessionId: sessionId, model: model, mode: mode,
-                        effort: effort, tokens: tokens, messages: messages, outfit: outfit, draft: draft, inputHistory: inputHistory,
+                        effort: effort, advising: advising, tokens: tokens, contextTokens: contextTokens, contextWindow: contextWindow,
+                        messages: messages, outfit: outfit, draft: draft, inputHistory: inputHistory,
                         forkedFrom: forkedFrom, forkAt: forkAt)
     }
 
@@ -135,9 +145,14 @@ final class Session: ObservableObject, Identifiable {
         }
     }
 
-    func quote(_ code: String) {
-        guard !code.trimmed.isEmpty else { return }
-        draft += (draft.isEmpty || draft.hasSuffix("\n") ? "" : "\n") + "`\(code.trimmed)`\n"
+    func quote(_ row: DiffRow, in file: FileDiff) {
+        guard !row.text.trimmed.isEmpty else { return }
+        let location = file.reference(to: row).map { "\($0) " } ?? ""
+        draft += (draft.isEmpty || draft.hasSuffix("\n") ? "" : "\n") + "\(location)`\(row.text.trimmed)`\n"
+    }
+
+    func isQuoted(_ row: DiffRow, in file: FileDiff) -> Bool {
+        file.reference(to: row).map { draft.contains("\($0) `") } ?? false
     }
 
     func reset() {
@@ -162,7 +177,11 @@ final class Session: ObservableObject, Identifiable {
     private func startNewSession() {
         sessionId = nil
         forkAt = nil
+        contextTokens = nil
         outfit = Int.random(in: 0..<1000)
+        advisor?.terminate()
+        advisor = nil
+        pendingAdvice = []
     }
 
     /// The CLI deletes transcripts after `cleanupPeriodDays`, which leaves a long-idle tab resuming a session that's gone.
@@ -226,7 +245,9 @@ final class Session: ObservableObject, Identifiable {
         }
         self.process = process
         input = stdin.fileHandleForWriting
-        let content: Any = attached.isEmpty ? text : attached.map { image in
+        let advice: [[String: Any]] = pendingAdvice.isEmpty ? [] : [["type": "text", "text": Self.advicePreamble + pendingAdvice.joined(separator: "\n\n")]]
+        pendingAdvice = []
+        let content: Any = attached.isEmpty && advice.isEmpty ? text : advice + attached.map { image in
             ["type": "image", "source": ["type": "base64", "media_type": "image/png", "data": image.base64EncodedString()]]
         } + (text.trimmed.isEmpty ? [] : [["type": "text", "text": text]])
         write(["type": "user", "message": ["role": "user", "content": content]])
@@ -246,8 +267,59 @@ final class Session: ObservableObject, Identifiable {
                 finish(error: stderr.isEmpty ? "claude exited with status \(process.terminationStatus)" : stderr)
             } else {
                 finish(error: nil)
+                if advising { advise() }
             }
         }
+    }
+
+    private static let advicePreamble = "A second model reviewed your previous turn. Address its notes, or say why you disagree:\n\n"
+
+    private static let advisorPrompt = """
+        You are an advisor watching another Claude coding agent work. You are given its latest turn: the user's request, \
+        the tools it called and what it said. Read files to check its work when that helps, but never change anything. \
+        If the turn is fine, reply with exactly OK. Otherwise reply with one or two sentences starting with NOTE:, \
+        CONCERN: or BLOCKER: about a real problem, such as a bug, a missed requirement, a wrong claim or a risky action.
+        """
+
+    /// A second model reviews the finished turn with read-only tools. Its note shows in the chat and reaches Claude with the next message.
+    private func advise() {
+        guard let request = messages.lastIndex(where: { $0.speaker == .user }),
+              messages[request...].contains(where: { $0.speaker == .claude || $0.speaker == .tool }),
+              messages.last?.speaker != .system else { return }
+        let transcript = messages[request...].map { "\($0.speaker.rawValue.uppercased()): \($0.text)" }.joined(separator: "\n\n")
+        // `--tools` takes a variadic list, so it goes last and the transcript is sent on stdin.
+        let process = claudeProcess(["-p", "--output-format", "json", "--model", ClaudeModel.sonnet.rawValue,
+                                     "--no-session-persistence", "--strict-mcp-config",
+                                     "--append-system-prompt", Self.advisorPrompt, "--tools", "Read,Grep,Glob"])
+        let out = Pipe(), stdin = Pipe()
+        process.standardOutput = out
+        process.standardInput = stdin
+        process.standardError = FileHandle.nullDevice
+        advisor?.terminate()
+        guard (try? process.run()) != nil else { return }
+        advisor = process
+
+        Task {
+            let data = await Task.detached {
+                try? stdin.fileHandleForWriting.write(contentsOf: Data(transcript.utf8))
+                try? stdin.fileHandleForWriting.close()
+                return out.fileHandleForReading.readDataToEndOfFile()
+            }.value
+            guard advisor === process else { return }
+            advisor = nil
+            guard let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            tokens += Self.tokens(in: result)
+            let note = (result["result"] as? String)?.trimmed ?? ""
+            guard result["is_error"] as? Bool != true, !note.isEmpty, note != "OK" else { return }
+            pendingAdvice.append(note)
+            messages.append(ChatMessage(speaker: .advisor, text: note))
+        }
+    }
+
+    private static func tokens(in result: [String: Any]) -> Int {
+        let usage = result["usage"] as? [String: Any] ?? [:]
+        return ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
+            .reduce(0) { $0 + (usage[$1] as? Int ?? 0) }
     }
 
     private func claudeProcess(_ args: [String]) -> Process {
@@ -451,6 +523,10 @@ final class Session: ObservableObject, Identifiable {
                   let message = event["message"] as? [String: Any],
                   let blocks = message["content"] as? [[String: Any]] else { break }
             for block in blocks { append(block: block) }
+            if let usage = message["usage"] as? [String: Any] {
+                contextTokens = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
+                    .reduce(0) { $0 + (usage[$1] as? Int ?? 0) }
+            }
         case "control_request":
             guard let id = event["request_id"] as? String,
                   let request = event["request"] as? [String: Any],
@@ -462,9 +538,11 @@ final class Session: ObservableObject, Identifiable {
                                       detail: Self.detail(of: input), input: input, suggestions: suggestions,
                                       questions: (input["questions"] as? [[String: Any]] ?? []).map(PermissionPrompt.Question.init))
         case "result":
-            let usage = event["usage"] as? [String: Any] ?? [:]
-            tokens += ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
-                .reduce(0) { $0 + (usage[$1] as? Int ?? 0) }
+            tokens += Self.tokens(in: event)
+            // Subagents on other models are listed too, so prefer the entry for the model this session runs.
+            let models = event["modelUsage"] as? [String: [String: Any]] ?? [:]
+            let main = models.first { liveModel?.hasPrefix($0.key) == true }?.value ?? models.values.first
+            contextWindow = main?["contextWindow"] as? Int ?? contextWindow
             // Closing stdin lets the CLI exit now that the turn is over.
             try? input?.close()
             input = nil

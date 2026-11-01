@@ -24,9 +24,11 @@ struct ClaudeQuestApp: App {
             CommandMenu("Party") {
                 Button("Previous Model") { cycleModel(by: -1) }.keyboardShortcut("j")
                 Button("Next Model") { cycleModel(by: 1) }.keyboardShortcut("k")
+                Button("Next Mode") { cycleMode() }.keyboardShortcut("m", modifiers: [.command, .shift])
+                Button("Next Effort") { cycleEffort() }.keyboardShortcut("e", modifiers: [.command, .shift])
                 Divider()
                 Button("Toggle Diff") { store.selected?.toggleDiff() }.keyboardShortcut("d")
-                Button("Toggle Diff Base") { store.selected?.toggleDiffBase() }.keyboardShortcut("e", modifiers: [.command, .shift])
+                Button("Toggle Diff Base") { store.selected?.toggleDiffBase() }.keyboardShortcut("b", modifiers: [.command, .shift])
                 Button("Toggle Git Log") { store.selected?.toggleLog() }.keyboardShortcut("l")
                 Button("Previous Tab") { cycleTab(by: -1) }.keyboardShortcut("1")
                 Button("Next Tab") { cycleTab(by: 1) }.keyboardShortcut("2")
@@ -36,9 +38,22 @@ struct ClaudeQuestApp: App {
 
     private func cycleModel(by offset: Int) {
         guard let session = store.selected else { return }
-        let models = ClaudeModel.allCases
-        let index = models.firstIndex(of: session.model) ?? 0
-        session.model = models[(index + offset + models.count) % models.count]
+        session.model = cycled(session.model, in: ClaudeModel.allCases, by: offset)
+    }
+
+    private func cycleMode() {
+        guard let session = store.selected else { return }
+        session.mode = cycled(session.mode, in: PermissionMode.allCases)
+    }
+
+    private func cycleEffort() {
+        guard let session = store.selected else { return }
+        session.effort = cycled(session.effort, in: [nil] + Effort.allCases)
+    }
+
+    private func cycled<Value: Equatable>(_ value: Value, in values: [Value], by offset: Int = 1) -> Value {
+        let index = values.firstIndex(of: value) ?? 0
+        return values[(index + offset + values.count) % values.count]
     }
 
     private func cycleTab(by offset: Int) {
