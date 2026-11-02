@@ -198,8 +198,40 @@ struct ActionPanel: View {
     private static let newId = "new"
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            NamePlate(name: "ACTIONS", color: Theme.cyan, shadowColor: Theme.deep)
+        VStack(alignment: .leading, spacing: -8) {
+            NamePlate(name: "ACTIONS", color: Theme.gold, shadowColor: Theme.ocean)
+                .padding(.horizontal, 18)
+                .zIndex(1)
+            content
+                .padding(.top, 6)
+                .padding(.bottom, 18)
+                .panel(accent: Theme.gold, padding: 18, opacity: 1)
+                .overlay(alignment: .bottomTrailing) {
+                    KeyHints(hints: hints, highlighted: deleteArmed ? "x" : nil)
+                        .padding(.horizontal, 10)
+                        .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
+                        .padding(.leading, 30)
+                        .padding(.trailing, 18)
+                        .offset(y: 10)
+                }
+        }
+        .frame(width: 380)
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(phases: [.down, .repeat], action: handle)
+        .onAppear { focused = true }
+        .onChange(of: editing) { if editing == nil { focused = true } }
+        .onChange(of: selected) { deleteArmed = false }
+        .onChange(of: actions.count) { selected = min(selected, actions.count) }
+        .onChange(of: session.repoPath) {
+            editing = nil
+            selected = 0
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 12) {
             Text("\((session.repoPath as NSString).lastPathComponent.uppercased()) · runs in \(session.title)")
                 .font(Theme.ui(12))
                 .foregroundStyle(Theme.dim)
@@ -225,7 +257,8 @@ struct ActionPanel: View {
                             editor(for: editing)
                         } else if editing == nil {
                             Button(action: startNew) {
-                                Chip(active: focused && selected == actions.count, color: Theme.cyan) { Text("+ NEW ACTION") }
+                                let active = focused && selected == actions.count
+                                marker(active: active, text: "+ New action", color: Theme.cyan)
                             }
                             .buttonStyle(.plain)
                             .id(Self.newId)
@@ -237,30 +270,18 @@ struct ActionPanel: View {
                 }
             }
         }
-        // The hint strip wraps to two lines for the list, so it needs more room than the message panels' single line.
-        .padding(.bottom, 18)
-        .panel(padding: 16)
-        .overlay(alignment: .bottomTrailing) {
-            KeyHints(hints: hints, highlighted: deleteArmed ? "x" : nil)
-                .padding(.horizontal, 10)
-                .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
-                .padding(.leading, 30)
-                .padding(.trailing, 18)
-                .offset(y: 10)
+    }
+
+    private func marker(active: Bool, text: String, color: Color) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(active ? "▶" : "○")
+                .foregroundStyle(active ? Theme.gold : Theme.dim)
+                .frame(width: 14)
+            Text(text).foregroundStyle(active ? Theme.gold : color)
         }
-        .frame(width: 380)
-        .focusable()
-        .focused($focused)
-        .focusEffectDisabled()
-        .onKeyPress(phases: [.down, .repeat], action: handle)
-        .onAppear { focused = true }
-        .onChange(of: editing) { if editing == nil { focused = true } }
-        .onChange(of: selected) { deleteArmed = false }
-        .onChange(of: actions.count) { selected = min(selected, actions.count) }
-        .onChange(of: session.repoPath) {
-            editing = nil
-            selected = 0
-        }
+        .font(Theme.body)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 
     private var hints: [(key: String, action: String)] {
@@ -326,11 +347,16 @@ private struct ActionRow: View {
     var body: some View {
         let run = store.run(of: action, in: directory)
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(action.name).font(Theme.ui(14, weight: .bold)).foregroundStyle(Theme.ice)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(selected ? "▶" : "○")
+                    .foregroundStyle(selected ? Theme.gold : Theme.dim)
+                    .frame(width: 14)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(action.name).foregroundStyle(selected ? Theme.gold : Theme.ice)
                     if !action.nickname.trimmed.isEmpty {
-                        Text(action.command).font(Theme.code).foregroundStyle(Theme.dim)
+                        Text(action.command)
+                            .font(Theme.code)
+                            .foregroundStyle(Theme.dim)
                     }
                 }
                 .lineLimit(1)
@@ -341,27 +367,28 @@ private struct ActionRow: View {
                         .foregroundStyle(run.state.color)
                 }
             }
+            .font(Theme.body)
             .contentShape(Rectangle())
             .onTapGesture {
                 select()
                 if run != nil { toggle() }
             }
-            HStack(spacing: 6) {
-                Button(action: self.run) { Chip(active: true, color: Theme.green) { Text(run?.isActive == true ? "RESTART" : "RUN") } }
-                if let run, run.isActive {
-                    Button { run.stop() } label: { Chip(color: Theme.red) { Text("STOP") } }
+            if selected {
+                HStack(spacing: 6) {
+                    Button(action: self.run) { Chip(active: true, color: Theme.green) { Text(run?.isActive == true ? "RESTART" : "RUN") } }
+                    if let run, run.isActive {
+                        Button { run.stop() } label: { Chip(color: Theme.red) { Text("STOP") } }
+                    }
+                    Spacer(minLength: 0)
+                    Button(action: edit) { Chip(color: Theme.cyan) { Text("EDIT") } }
+                    Button { store.actions.removeAll { $0.id == action.id } } label: { Chip(color: Theme.red) { Text("×") } }
+                        .disabled(run?.isActive == true)
                 }
-                Spacer(minLength: 0)
-                Button(action: edit) { Chip(color: Theme.cyan) { Text("EDIT") } }
-                Button { store.actions.removeAll { $0.id == action.id } } label: { Chip(color: Theme.red) { Text("×") } }
-                    .disabled(run?.isActive == true)
+                .buttonStyle(.plain)
+                .padding(.leading, 22)
             }
-            .buttonStyle(.plain)
             if expanded, let run { RunOutput(run: run) }
         }
-        .padding(10)
-        .background(Slant(amount: 6).fill(Theme.navy.opacity(0.5)))
-        .overlay(Slant(amount: 6).stroke(Theme.cyan.opacity(selected ? 1 : 0), lineWidth: 1.5))
     }
 }
 

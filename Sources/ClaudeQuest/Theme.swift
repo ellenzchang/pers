@@ -117,6 +117,7 @@ struct Panel: ViewModifier {
     var morphing = false
     var selected = false
     var colors: [Color]?
+    var opacity = 0.94
 
     func body(content: Content) -> some View {
         content
@@ -146,7 +147,7 @@ struct Panel: ViewModifier {
             } else {
                 let colors = colors ?? (dark ? [Theme.terminalTop, Theme.terminalBottom] : [Theme.panelTop, Theme.panelBottom])
                 shape.fill(LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom))
-                    .opacity(0.94)
+                    .opacity(opacity)
             }
             shape.stroke(accent.opacity(borderOpacity), lineWidth: Theme.isQuest || selected ? 1.5 : 1)
         }
@@ -155,8 +156,8 @@ struct Panel: ViewModifier {
 
 extension View {
     func panel(light: Bool = false, accent: Color = Theme.cyan, dark: Bool = false, padding: CGFloat = 14,
-               morphing: Bool = false, selected: Bool = false, colors: [Color]? = nil) -> some View {
-        modifier(Panel(light: light, accent: accent, dark: dark, padding: padding, morphing: morphing, selected: selected, colors: colors))
+               morphing: Bool = false, selected: Bool = false, colors: [Color]? = nil, opacity: Double = 0.94) -> some View {
+        modifier(Panel(light: light, accent: accent, dark: dark, padding: padding, morphing: morphing, selected: selected, colors: colors, opacity: opacity))
     }
 }
 
