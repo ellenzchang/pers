@@ -868,7 +868,13 @@ private struct LoadData: View {
             .font(Theme.body)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.top, 6)
-            .panel(padding: 18)
+            .panel(padding: 18, opacity: 1)
+            .overlay(alignment: .bottomTrailing) {
+                KeyHints(hints: [("↑ ↓ j k", "choose"), ("⏎", "load"), ("ESC", "close")])
+                    .padding(.horizontal, 10)
+                    .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
+                    .padding(.trailing, 18)
+            }
         }
         .padding(20)
         .frame(width: 640, height: 520)
@@ -882,7 +888,7 @@ private struct LoadData: View {
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
-        .onKeyPress(keys: [.upArrow, .downArrow, .return], phases: [.down, .repeat], action: select)
+        .onKeyPress(keys: [.upArrow, .downArrow, .return, "j", "k"], phases: [.down, .repeat], action: select)
         .task {
             focused = true
             saves = await Task.detached { SaveData.list() }.value
@@ -897,8 +903,8 @@ private struct LoadData: View {
     private func select(_ press: KeyPress) -> KeyPress.Result {
         guard let saves, let save = selectedSave else { return .ignored }
         switch press.key {
-        case .upArrow: selected = max(selected - 1, 0)
-        case .downArrow: selected = min(selected + 1, saves.count - 1)
+        case .upArrow, "k": selected = max(selected - 1, 0)
+        case .downArrow, "j": selected = min(selected + 1, saves.count - 1)
         default: load(save)
         }
         return .handled
