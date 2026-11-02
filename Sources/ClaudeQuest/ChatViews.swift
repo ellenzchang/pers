@@ -133,11 +133,19 @@ extension Session {
         messages.filter { message in
             let text = visibleText(of: message)
             switch message.speaker {
-            case .user: return !text.hasPrefix("!") && !text.hasPrefix(Session.terminalMarker)
-            case .claude: return true
+            case .user: return !text.hasPrefix("!")
+            case .claude, .shell: return true
             default: return false
             }
         }
+    }
+
+    func isTerminal(_ message: ChatMessage) -> Bool {
+        message.speaker == .shell || (message.speaker == .user && message.text.hasPrefix(Session.terminalMarker))
+    }
+
+    func copyText(of message: ChatMessage) -> String {
+        message.speaker == .user && isTerminal(message) ? String(message.text.dropFirst()) : message.text
     }
 }
 
@@ -177,7 +185,7 @@ struct MessageRow: View {
     var body: some View {
         switch message.speaker {
         case .user where text.hasPrefix(Session.terminalMarker):
-            toolRow(name: "TERMINAL", detail: text.dropFirst().trimmed, trailing: true, color: Theme.green)
+            selectable(toolRow(name: "TERMINAL", detail: text.dropFirst().trimmed, trailing: true, color: Theme.green))
         case .user where text.hasPrefix("!"):
             toolRow(name: "BASH", detail: text.dropFirst().trimmed, trailing: true)
         case .user:
@@ -226,9 +234,9 @@ struct MessageRow: View {
                 if let edits = message.edits { EditDiff(edits: edits).padding(.leading, 18) }
             }
         case .shell:
-            CodeBlock(language: "shell", code: text)
+            selectable(CodeBlock(language: "shell", code: text)
                 .padding(.leading, 18)
-                .textSelection(.enabled)
+                .textSelection(.enabled))
         case .system:
             Text(text)
                 .font(Theme.ui(13, weight: .bold))
@@ -239,6 +247,20 @@ struct MessageRow: View {
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity)
         }
+    }
+
+    private func selectable<Content: View>(_ content: Content) -> some View {
+        content
+            .padding(.bottom, hovered ? 14 : 0)
+            .background(hovered ? Theme.gold.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 4))
+            .overlay(alignment: .bottomTrailing) {
+                if hovered {
+                    KeyHints(hints: hints.filter { $0.key != "f" }, highlighted: armedKey)
+                        .padding(.horizontal, 10)
+                        .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
+                        .padding(.trailing, 18)
+                }
+            }
     }
 
     private func toolRow(name: String, detail: String?, trailing: Bool = false, color: Color = Theme.cyan) -> some View {
@@ -514,7 +536,7 @@ struct DialogueBox: View {
         case (_, "J"): navigator.moveFile(by: 1, in: diff)
         case (_, "K"): navigator.moveFile(by: -1, in: diff)
         case (_, "f") where press.phase == .down && !inDiff:
-            guard let message = navigator.message(in: messages) else { break }
+            guard let message = navigator.message(in: messages), !session.isTerminal(message) else { break }
             if navigator.forkArmed {
                 store.fork(session, at: message)
                 navigator.active = false
@@ -526,7 +548,7 @@ struct DialogueBox: View {
             guard let message = navigator.message(in: messages) else { break }
             if navigator.yankArmed {
                 NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(message.text, forType: .string)
+                NSPasteboard.general.setString(session.copyText(of: message), forType: .string)
                 navigator.disarm()
             } else {
                 navigator.disarm()
