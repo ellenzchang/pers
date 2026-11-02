@@ -435,11 +435,10 @@ private struct RequestRow: View {
     private var highlighted: Bool { hovered || selected }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Text(request.method)
                 .font(Theme.ui(10, weight: .black))
                 .foregroundStyle(highlighted ? Theme.navy : request.method.methodColor)
-                .frame(width: 52, alignment: .leading)
             Text(request.title)
                 .font(Theme.ui(14, weight: .bold))
                 .lineLimit(1)
