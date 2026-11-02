@@ -4,17 +4,27 @@ import SwiftUI
 @MainActor
 final class Navigator: ObservableObject {
     @Published var active = false {
-        didSet { if !active { forkArmed = false } }
+        didSet { if !active { disarm() } }
     }
     @Published var messageId: ChatMessage.ID? {
-        didSet { forkArmed = false }
+        didSet { disarm() }
     }
     @Published var forkArmed = false
+    @Published var yankArmed = false
     @Published var promptIndex = 0
     @Published var typingAnswer = false
     @Published var diffLine = 0
     @Published var diffPath: String? {
         didSet { diffLine = 0 }
+    }
+
+    var armedKey: String? {
+        forkArmed ? "f" : yankArmed ? "y" : nil
+    }
+
+    func disarm() {
+        forkArmed = false
+        yankArmed = false
     }
 
     func file(in diff: [FileDiff]) -> FileDiff? {

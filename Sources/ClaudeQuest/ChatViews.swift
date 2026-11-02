@@ -32,7 +32,7 @@ struct MessageLog: View {
                     ForEach(session.messages) { message in
                         let hovered = navigator.active && navigator.message(in: session.boxedMessages)?.id == message.id
                         MessageRow(message: message, text: session.visibleText(of: message),
-                                   hovered: hovered, forking: hovered && navigator.forkArmed, hints: hovered ? navigationHints : [])
+                                   hovered: hovered, armedKey: hovered ? navigator.armedKey : nil, hints: hovered ? navigationHints : [])
                             .id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -76,6 +76,7 @@ struct MessageLog: View {
 
     private var navigationHints: [(key: String, action: String)] {
         [("j k", "message"), ("g G", "first/last"), ("f", navigator.forkArmed ? "again to fork from this message" : "fork"),
+         ("y", navigator.yankArmed ? "again to copy this message" : "copy"),
          ("⌘D", "diff"), ("ESC i", "type")]
     }
 
@@ -146,8 +147,10 @@ struct MessageRow: View {
     var message: ChatMessage
     var text: String
     var hovered = false
-    var forking = false
+    var armedKey: String?
     var hints: [(key: String, action: String)] = []
+
+    private var forking: Bool { armedKey != nil }
 
     var body: some View {
         switch message.speaker {
@@ -256,7 +259,7 @@ struct MessageRow: View {
                 .panel(light: light, accent: forking || (hovered && !Theme.isQuest) ? Theme.gold : Theme.cyan, padding: 18, morphing: hovered, selected: hovered,
                        colors: forking ? [Theme.amberTop, Theme.amberBottom] : nil)
                 .overlay(alignment: .bottomTrailing) {
-                    KeyHints(hints: hints, highlighted: forking ? "f" : nil)
+                    KeyHints(hints: hints, highlighted: armedKey)
                         .padding(.horizontal, 10)
                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                         .padding(.trailing, 18)
@@ -494,7 +497,18 @@ struct DialogueBox: View {
                 store.fork(session, at: message)
                 navigator.active = false
             } else {
+                navigator.disarm()
                 navigator.forkArmed = true
+            }
+        case (_, "y") where press.phase == .down && !inDiff:
+            guard let message = navigator.message(in: messages) else { break }
+            if navigator.yankArmed {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(message.text, forType: .string)
+                navigator.disarm()
+            } else {
+                navigator.disarm()
+                navigator.yankArmed = true
             }
         case (.return, _):
             if inDiff, let file = navigator.file(in: diff) {
