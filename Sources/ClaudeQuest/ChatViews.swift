@@ -45,9 +45,13 @@ struct MessageLog: View {
             }
             .scrollPosition($scroller.position)
             .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { scroller.geometry = $1 }
-            .onChange(of: session.messages.count) { scrollDown(proxy) }
-            .onChange(of: session.revealed) { scrollDown(proxy, animated: false) }
-            .onChange(of: navigator.messageId) { centerSelection(proxy) }
+            .onChange(of: session.messages.count) { if !navigator.active { scrollDown(proxy) } }
+            .onChange(of: session.revealed) { if !navigator.active { scrollDown(proxy, animated: false) } }
+            .onChange(of: session.boxedMessages.count) { if navigator.active { navigator.newMessage = true } }
+            .onChange(of: navigator.messageId) {
+                if navigator.message(in: session.boxedMessages)?.id == session.boxedMessages.last?.id { navigator.newMessage = false }
+                centerSelection(proxy)
+            }
             .onChange(of: navigator.active) {
                 guard navigator.active else { return }
                 // The dialogue box shrinks as navigation starts, so centre once the log has its final height.
@@ -58,6 +62,24 @@ struct MessageLog: View {
             }
             .onAppear { scrollDown(proxy, animated: false) }
         }
+        .overlay(alignment: .bottom) {
+            if navigator.active && navigator.newMessage {
+                Button { navigator.jumpToLatest(in: session.boxedMessages) } label: {
+                    HStack(spacing: 8) {
+                        Text("NEW MESSAGE RECEIVED").foregroundStyle(Theme.navy)
+                        KeyHints(hints: [("G", "scroll down to see latest")])
+                    }
+                    .font(Theme.ui(13, weight: .black))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 4)
+                    .background(Slant(amount: 8).fill(Theme.gold))
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 12)
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: navigator.newMessage)
         .overlay(alignment: .trailing) {
             if let prompt = session.prompt {
                 PermissionBox(session: session, navigator: navigator, prompt: prompt)
@@ -488,7 +510,7 @@ struct DialogueBox: View {
         case (.upArrow, _), (_, "k"):
             if inDiff { navigator.moveLine(by: -1, in: diff) } else { navigator.moveMessage(by: -1, in: messages) }
         case (_, "g"): if inDiff { navigator.setLine(0, in: diff) } else { navigator.setMessage(0, in: messages) }
-        case (_, "G"): if inDiff { navigator.setLine(.max, in: diff) } else { navigator.setMessage(.max, in: messages) }
+        case (_, "G"): if inDiff { navigator.setLine(.max, in: diff) } else { navigator.jumpToLatest(in: messages) }
         case (_, "J"): navigator.moveFile(by: 1, in: diff)
         case (_, "K"): navigator.moveFile(by: -1, in: diff)
         case (_, "f") where press.phase == .down && !inDiff:

@@ -4,13 +4,14 @@ import SwiftUI
 @MainActor
 final class Navigator: ObservableObject {
     @Published var active = false {
-        didSet { if !active { disarm() } }
+        didSet { if !active { disarm(); newMessage = false } }
     }
     @Published var messageId: ChatMessage.ID? {
         didSet { disarm() }
     }
     @Published var forkArmed = false
     @Published var yankArmed = false
+    @Published var newMessage = false
     @Published var promptIndex = 0
     @Published var typingAnswer = false
     @Published var diffLine = 0
@@ -56,6 +57,11 @@ final class Navigator: ObservableObject {
     func moveMessage(by delta: Int, in messages: [ChatMessage]) {
         guard let current = message(in: messages), let index = messages.firstIndex(of: current) else { return }
         messageId = messages[min(max(index + delta, 0), messages.count - 1)].id
+    }
+
+    func jumpToLatest(in messages: [ChatMessage]) {
+        setMessage(.max, in: messages)
+        newMessage = false
     }
 
     func setMessage(_ index: Int, in messages: [ChatMessage]) {

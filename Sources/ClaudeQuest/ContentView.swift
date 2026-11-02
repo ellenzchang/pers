@@ -18,6 +18,7 @@ struct ContentView: View {
                     .id(session.id)
             }
         }
+        .onChange(of: navigator.newMessage) { store.selected?.unseenAbove = navigator.newMessage }
         .overlay(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 14) {
                 if Theme.isQuest { DayPanel() }

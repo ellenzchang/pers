@@ -33,6 +33,7 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var prompt: PermissionPrompt?
     @Published private(set) var resets = 0
     @Published var hasUnread = false
+    @Published var unseenAbove = false
 
     private(set) var forkedFrom: UUID?
     private var forkAt: String?
@@ -665,7 +666,7 @@ final class AppStore: ObservableObject {
                              Publishers.MergeMany(sessions.map { $0.$directory.map { _ in } }))
                 .sink { [weak self] in self?.objectWillChange.send() }
             guard let self else { return }
-            let changes = sessions.map { $0.$hasUnread.map { _ in }.eraseToAnyPublisher() }
+            let changes = sessions.flatMap { [$0.$hasUnread.map { _ in }.eraseToAnyPublisher(), $0.$unseenAbove.map { _ in }.eraseToAnyPublisher()] }
                 + [self.$selectedId.map { _ in }.eraseToAnyPublisher(),
                    NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).map { _ in }.eraseToAnyPublisher()]
             self.unreadSubscription = Publishers.MergeMany(changes)
@@ -675,7 +676,7 @@ final class AppStore: ObservableObject {
     }
 
     private func refreshDockBadge() {
-        if NSApp.isActive, selected?.hasUnread == true { selected?.hasUnread = false }
+        if NSApp.isActive, selected?.unseenAbove == false, selected?.hasUnread == true { selected?.hasUnread = false }
         let unread = sessions.filter(\.hasUnread).count
         NSApp.dockTile.badgeLabel = unread > 0 ? "\(unread)" : nil
     }
