@@ -330,8 +330,9 @@ final class Session: ObservableObject, Identifiable {
     private func claudeProcess(_ args: [String]) -> Process {
         let process = Process()
         // The login shell supplies .zprofile's environment; the binary path is resolved separately (see claudePath).
+        // Its directory goes on PATH because plugin hooks (e.g. Slack's PII gate) look up `claude` by name.
         process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", "exec \"$0\" \"$@\"", Self.claudePath] + args
+        process.arguments = ["-lc", "PATH=\"$(dirname \"$0\"):$PATH\" exec \"$0\" \"$@\"", Self.claudePath] + args
         process.currentDirectoryURL = URL(fileURLWithPath: directory)
         return process
     }
