@@ -323,6 +323,7 @@ struct DialogueBox: View {
     @ObservedObject var navigator: Navigator
     @ViewState private var loading = false
     @FocusState private var focused: Bool
+    @ViewState private var draftHeight: CGFloat = 0
     @ViewState private var historyIndex: Int?
     @ViewState private var stashedDraft = ""
     @ViewState private var isTerminal = false
@@ -430,8 +431,18 @@ struct DialogueBox: View {
                             if let historyIndex, shownEntry != session.inputHistory[historyIndex] { self.historyIndex = nil }
                         }
                 }
+                .background(alignment: .topLeading) {
+                    Text(session.draft + " ")
+                        .font(draftFont)
+                        .padding(.horizontal, 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .hidden()
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { draftHeight = $0 }
+                }
                 .padding(.top, 8)
-                .frame(height: navigator.active ? 28 : 112)
+                .frame(height: navigator.active ? 28 : min(max(draftHeight + 24, 112), 300))
+                .clipped()
                 .animation(.easeOut(duration: 0.15), value: navigator.active)
                 .background(Theme.codeBackground.opacity(isShell && !inTerminal ? 0.9 : 0))
                 .panel(accent: plateColor, dark: inTerminal, padding: 16, morphing: true)
