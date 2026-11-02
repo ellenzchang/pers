@@ -43,6 +43,7 @@ final class Session: ObservableObject, Identifiable {
     private var fix: String?
     private var advisor: Process?
     private var pendingAdvice: [String] = []
+    var extraArguments: (@MainActor () -> [String])?
 
     init(directory: String, model: ClaudeModel = .sonnet, mode: PermissionMode = .acceptEdits) {
         id = UUID()
@@ -99,7 +100,7 @@ final class Session: ObservableObject, Identifiable {
     }
 
     var title: String { (directory as NSString).lastPathComponent }
-    var repoPath: String { git.map { $0.worktrees.first?.path ?? $0.root } ?? directory }
+    var repoPath: String { git?.repoPath ?? directory }
     var logIdentity: String { "\(id)-\(resets)" }
     var isTalking: Bool { typingId != nil }
 
@@ -231,6 +232,7 @@ final class Session: ObservableObject, Identifiable {
         if let effort { args += ["--effort", effort.rawValue] }
         if let sessionId { args += ["--resume", sessionId] }
         if sessionId != nil, let forkAt { args += ["--fork-session", "--resume-session-at", forkAt] }
+        if let extraArguments { args += extraArguments() }
 
         let process = claudeProcess(args)
         let out = Pipe(), err = Pipe(), stdin = Pipe()
@@ -622,16 +624,29 @@ final class AppStore: ObservableObject {
     @Published var showingActions = false
     @Published var actions: [Action] = [] { didSet { saveActions() } }
     @Published var runs: [ActionRun] = []
+    @Published var requests: [APIRequest] = [] { didSet { saveRequests() } }
+    @Published var responses: [APIRequest.ID: APIResponse] = [:] { didSet { saveResponses() } }
+    @Published var page = Page.sessions
+    @Published var showingMap = false
+    @Published var requestFolder: String?
+    @Published var selectedRequestId: UUID?
+    @Published var savedFolders = UserDefaults.standard.stringArray(forKey: foldersKey) ?? [] {
+        didSet { UserDefaults.standard.set(savedFolders, forKey: Self.foldersKey) }
+    }
+    let requestSession = Session(directory: NSHomeDirectory())
 
     private var saveSubscription: AnyCancellable?
     private var sessionSubscriptions: AnyCancellable?
     private var layoutSubscription: AnyCancellable?
     private var unreadSubscription: AnyCancellable?
     private var runsSubscription: AnyCancellable?
-    var actionsWatcher: DispatchSourceFileSystemObject?
+    var saveFilesWatcher: DispatchSourceFileSystemObject?
+    var requestFolderSubscription: AnyCancellable?
+    var requestTurnSubscription: AnyCancellable?
     private var runStateSubscriptions: AnyCancellable?
 
     private static let selectedKey = "selectedSession"
+    private static let foldersKey = "requestFolders"
 
     private static let supportDirectory: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -642,6 +657,8 @@ final class AppStore: ObservableObject {
     private static let saveURL = supportDirectory.appendingPathComponent("tabs.json")
     static let seededGlobalKey = "seededGlobalActions"
     static let actionsURL = supportDirectory.appendingPathComponent("actions.json")
+    static let requestsURL = supportDirectory.appendingPathComponent("requests.json")
+    static let responsesURL = supportDirectory.appendingPathComponent("responses.json")
 
     init() {
         if let data = try? Data(contentsOf: Self.saveURL),
@@ -653,7 +670,10 @@ final class AppStore: ObservableObject {
         selectedId = sessions.first { $0.id == lastSelected }?.id ?? sessions.first?.id
         reloadActions()
         seedGlobalActions()
-        watchActions()
+        watchSaveFiles()
+        loadRequests()
+        loadResponses()
+        setUpRequestSession()
         // Output streams in constantly, so only state changes are forwarded to views observing the store.
         runsSubscription = $runs.sink { [weak self] runs in
             self?.runStateSubscriptions = Publishers.MergeMany(runs.map { $0.$state.map { _ in } })

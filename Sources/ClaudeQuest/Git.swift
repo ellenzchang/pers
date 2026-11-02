@@ -57,6 +57,9 @@ struct GitInfo: Equatable {
     var behind: Int
     var root: String
     var worktrees: [Worktree]
+
+    /// The main checkout, which every worktree of the repo shares.
+    var repoPath: String { worktrees.first?.path ?? root }
 }
 
 enum Git {

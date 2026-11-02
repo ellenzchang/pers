@@ -9,7 +9,7 @@ struct SessionOverview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            KeyHints(hints: [("⌘1 ⌘2", "tab"), ("⌘T", "new"), ("⇧⌘T", "worktree"), ("⌘W", "close"), ("⇧⌘A", "actions")])
+            KeyHints(hints: [("⌘1 ⌘2", "tab"), ("⌘T", "new"), ("⇧⌘T", "worktree"), ("⌘W", "close"), ("⇧⌘A", "actions"), ("⌃M", "map")])
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(store.repos) { repo in

@@ -33,6 +33,9 @@ struct ClaudeQuestApp: App {
                 Button("Previous Tab") { cycleTab(by: -1) }.keyboardShortcut("1")
                 Button("Next Tab") { cycleTab(by: 1) }.keyboardShortcut("2")
             }
+            CommandMenu("Go") {
+                Button("Map") { store.showingMap.toggle() }.keyboardShortcut("m", modifiers: .control)
+            }
         }
     }
 
@@ -57,6 +60,7 @@ struct ClaudeQuestApp: App {
     }
 
     private func cycleTab(by offset: Int) {
+        if store.page == .apiTester && !store.showingMap { return }
         let sessions = store.repos.flatMap(\.sessions)
         guard let index = sessions.firstIndex(where: { $0.id == store.selectedId }) else { return }
         store.selectedId = sessions[(index + offset + sessions.count) % sessions.count].id

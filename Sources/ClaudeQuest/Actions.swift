@@ -160,14 +160,17 @@ extension AppStore {
     }
 
     /// Watches the directory rather than the file: saves are atomic, which replaces the file and would end a watch on it.
-    func watchActions() {
+    func watchSaveFiles() {
         let descriptor = open(Self.actionsURL.deletingLastPathComponent().path, O_EVTONLY)
         guard descriptor >= 0 else { return }
         let watcher = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: .write, queue: .main)
-        watcher.setEventHandler { [weak self] in self?.reloadActions() }
+        watcher.setEventHandler { [weak self] in
+            self?.reloadActions()
+            self?.loadRequests()
+        }
         watcher.setCancelHandler { Darwin.close(descriptor) }
         watcher.resume()
-        actionsWatcher = watcher
+        saveFilesWatcher = watcher
     }
 
     func saveActions() {

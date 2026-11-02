@@ -9,6 +9,25 @@ struct ContentView: View {
     @AppStorage(DialogueBox.showSpriteKey) private var showSprite = false
 
     var body: some View {
+        Group {
+            if store.showingMap {
+                MapView()
+            } else if store.page == .apiTester {
+                APITester()
+            } else {
+                sessions
+            }
+        }
+        .background {
+            if Theme.isQuest { MoonlitBackground() } else { Theme.deep }
+        }
+        .ignoresSafeArea(edges: .top)
+        .preferredColorScheme(.dark)
+        .frame(minWidth: 820, minHeight: 600)
+        .id(style)
+    }
+
+    private var sessions: some View {
         VStack(spacing: 0) {
             if let session = store.selected {
                 StatusHUD(session: session)
@@ -47,9 +66,6 @@ struct ContentView: View {
             }
         }
         .background {
-            if Theme.isQuest { MoonlitBackground() } else { Theme.deep }
-        }
-        .background {
             Button("") { showSprite.toggle() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .opacity(0)
@@ -63,10 +79,6 @@ struct ContentView: View {
                 .opacity(0)
                 .allowsHitTesting(false)
         }
-        .ignoresSafeArea(edges: .top)
-        .preferredColorScheme(.dark)
-        .frame(minWidth: 820, minHeight: 600)
-        .id(style)
     }
 
     private func openDiffFileInIntelliJ() {
