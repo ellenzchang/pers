@@ -26,6 +26,15 @@ struct MarkdownView: View {
                     }
                 case .table(let rows):
                     MarkdownTable(rows: rows)
+                case .quote(let quote):
+                    HStack(spacing: 0) {
+                        Rectangle().fill(Theme.cyan).frame(width: 3)
+                        MarkdownView(text: quote)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                    }
+                    .background(Theme.cyan.opacity(0.08))
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -45,6 +54,7 @@ struct MarkdownView: View {
         case code(language: String, code: String)
         case list([ListItem])
         case table([[String]])
+        case quote(String)
     }
 
     struct ListItem {
@@ -79,6 +89,15 @@ struct MarkdownView: View {
                 }
             } else if code != nil {
                 code?.append(line)
+            } else if content.hasPrefix(">") {
+                let quoted = String(content.dropFirst().drop { $0 == " " })
+                let continuesQuote = prose.isEmpty
+                flushProse()
+                if continuesQuote, case .quote(let quote) = result.last {
+                    result[result.count - 1] = .quote(quote + "\n" + quoted)
+                } else {
+                    result.append(.quote(quoted))
+                }
             } else if content.hasPrefix("|") {
                 let cells = content.trimmingCharacters(in: CharacterSet(charactersIn: "|"))
                     .split(separator: "|", omittingEmptySubsequences: false).map(\.trimmed)
