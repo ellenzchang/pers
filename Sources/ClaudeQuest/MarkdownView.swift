@@ -217,6 +217,16 @@ enum SyntaxHighlighter {
     (?<comment>//[^\n]*|#(?![!{])[^\n]*|/\*[\s\S]*?\*/)|(?<string>"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`[^`]*`)|(?<number>\b\d+(?:\.\d+)?\b)|(?<word>\b[A-Za-z_][A-Za-z0-9_]*\b)
     """#)
 
+    static func highlight(lines: [String]) -> [AttributedString] {
+        let result = highlight(lines.joined(separator: "\n"))
+        var start = result.startIndex
+        return lines.map { line in
+            let end = result.index(start, offsetByCharacters: line.count)
+            defer { if end < result.endIndex { start = result.index(end, offsetByCharacters: 1) } }
+            return AttributedString(result[start..<end])
+        }
+    }
+
     static func highlight(_ code: String) -> AttributedString {
         var result = AttributedString(code)
         result.foregroundColor = Color(hex: 0xD6E8FF)

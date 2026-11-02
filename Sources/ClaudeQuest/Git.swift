@@ -21,6 +21,7 @@ struct DiffRow: Equatable {
     var newNumber: Int?
     var text: String
     var changed: [Range<Int>] = []
+    var highlighted: AttributedString?
 }
 
 struct FileDiff: Identifiable, Equatable {
@@ -128,7 +129,19 @@ enum Git {
             }
         }
         markWordChanges(in: &rows)
+        highlight(&rows)
         return rows.isEmpty ? [DiffRow(kind: .hunk, text: "No textual changes")] : rows
+    }
+
+    /// Highlights each side of the diff as one document so multi-line comments and strings keep their color.
+    private static func highlight(_ rows: inout [DiffRow]) {
+        for side in [DiffRow.Kind.removed, .added] {
+            let indices = rows.indices.filter { rows[$0].kind == side || rows[$0].kind == .context }
+            let highlighted = SyntaxHighlighter.highlight(lines: indices.map { rows[$0].text })
+            for (index, line) in zip(indices, highlighted) where rows[index].kind == side || side == .added {
+                rows[index].highlighted = line
+            }
+        }
     }
 
     private static func startLine(_ range: Substring) -> Int {

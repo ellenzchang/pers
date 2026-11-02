@@ -103,9 +103,13 @@ struct DiffLine: View {
     }
 
     private var code: AttributedString {
-        var text = AttributedString(row.text.isEmpty ? " " : row.text)
+        var text = switch row.kind {
+        case .hunk: AttributedString(row.text)
+        default: row.highlighted ?? SyntaxHighlighter.highlight(row.text)
+        }
+        if row.text.isEmpty { text = AttributedString(" ") }
         text.font = Theme.code
-        text.foregroundColor = row.kind == .hunk ? Self.hunkColor : Theme.text
+        if row.kind == .hunk { text.foregroundColor = Self.hunkColor }
         if let tint {
             for changed in row.changed {
                 let start = text.index(text.startIndex, offsetByCharacters: changed.lowerBound)
