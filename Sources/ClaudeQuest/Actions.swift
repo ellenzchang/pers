@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// A saved shell command for a repo, shared by all of its worktrees.
+/// A saved shell command for a repo, shared by all of its worktrees. Without a repo it's global and can run from any tab.
 struct Action: Codable, Identifiable, Equatable {
     var id = UUID()
-    var repo: String
+    var repo: String?
     var command = ""
     var nickname = ""
     /// `KEY=value` lines, exported before the command. Values go through the shell, so `$(secret …)` keeps secrets out of the save file.
@@ -27,6 +27,15 @@ struct Action: Codable, Identifiable, Equatable {
             return parts[0]
         }
     }
+
+    /// Google renders its AI Overview with JavaScript, so a headless Chrome fetches the page and Claude pulls the overview out of its text.
+    static let googleAISummary = Action(command: """
+        query=$(osascript -e 'text returned of (display dialog "Google query:" default answer "")') || exit 1
+        url="https://www.google.com/search?q=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote_plus(sys.argv[1]))' "$query")"
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --disable-gpu --virtual-time-budget=10000 --dump-dom "$url" 2>/dev/null \
+          | python3 -c 'import re, sys; print(re.sub(r"\\s+", " ", re.sub(r"<(script|style)[^>]*>.*?</\\1>|<[^>]+>", " ", sys.stdin.read(), flags=re.S)))' \
+          | claude -p "This is the text of a Google results page for the query '$query'. Output only the AI Overview, or say there isn't one."
+        """, nickname: "Google AI summary")
 
     private var variables: [String] {
         environment.split(separator: "\n").map(\.trimmed)
@@ -137,6 +146,12 @@ extension AppStore {
         if let index = actions.firstIndex(where: { $0.id == action.id }) { actions[index] = action } else { actions.append(action) }
     }
 
+    func seedGlobalActions() {
+        guard !UserDefaults.standard.bool(forKey: Self.seededGlobalKey) else { return }
+        UserDefaults.standard.set(true, forKey: Self.seededGlobalKey)
+        actions.append(Action.googleAISummary)
+    }
+
     func reloadActions() {
         guard let data = try? Data(contentsOf: Self.actionsURL),
               let saved = try? JSONDecoder().decode([Action].self, from: data),
@@ -191,17 +206,21 @@ struct ActionPanel: View {
     /// Index into `actions`, where one past the end is the new-action button.
     @ViewState private var selected = 0
     @ViewState private var deleteArmed = false
+    @ViewState private var showingGlobal = false
     @FocusState private var focused: Bool
 
-    private var actions: [Action] { store.actions.filter { $0.repo == session.repoPath } }
+    private var actions: [Action] { store.actions.filter { $0.repo == (showingGlobal ? nil : session.repoPath) } }
     private var selectedAction: Action? { actions.indices.contains(selected) ? actions[selected] : nil }
     private static let newId = "new"
 
     var body: some View {
         VStack(alignment: .leading, spacing: -8) {
-            NamePlate(name: "ACTIONS", color: Theme.gold, shadowColor: Theme.ocean)
-                .padding(.horizontal, 18)
-                .zIndex(1)
+            HStack(spacing: 0) {
+                NamePlate(name: "ACTIONS", color: Theme.gold, shadowColor: Theme.ocean)
+                scopeTabs
+            }
+            .padding(.horizontal, 18)
+            .zIndex(1)
             content
                 .padding(.top, 6)
                 .padding(.bottom, 18)
@@ -223,6 +242,10 @@ struct ActionPanel: View {
         .onAppear { focused = true }
         .onChange(of: editing) { if editing == nil { focused = true } }
         .onChange(of: selected) { deleteArmed = false }
+        .onChange(of: showingGlobal) {
+            editing = nil
+            selected = 0
+        }
         .onChange(of: actions.count) { selected = min(selected, actions.count) }
         .onChange(of: session.repoPath) {
             editing = nil
@@ -232,7 +255,7 @@ struct ActionPanel: View {
 
     private var content: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("\((session.repoPath as NSString).lastPathComponent.uppercased()) · runs in \(session.title)")
+            Text("runs in \(session.title)")
                 .font(Theme.ui(12))
                 .foregroundStyle(Theme.dim)
                 .lineLimit(1)
@@ -272,6 +295,23 @@ struct ActionPanel: View {
         }
     }
 
+    private var scopeTabs: some View {
+        HStack(spacing: 10) {
+            scopeTab((session.repoPath as NSString).lastPathComponent.uppercased(), active: !showingGlobal) { showingGlobal = false }
+            Text("│").foregroundStyle(Theme.dim)
+            scopeTab("GLOBAL", active: showingGlobal) { showingGlobal = true }
+        }
+        .font(Theme.ui(12, weight: .bold))
+        .lineLimit(1)
+        .padding(.horizontal, 10)
+        .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
+    }
+
+    private func scopeTab(_ title: String, active: Bool, select: @escaping () -> Void) -> some View {
+        Button(action: select) { Text(title).foregroundStyle(active ? Theme.gold : Theme.dim) }
+            .buttonStyle(.plain)
+    }
+
     private func marker(active: Bool, text: String, color: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(active ? "▶" : "○")
@@ -286,7 +326,7 @@ struct ActionPanel: View {
 
     private var hints: [(key: String, action: String)] {
         if editing != nil { return [("⏎", "save"), ("⇥", "next field"), ("⌥⏎", "new line"), ("ESC", "cancel")] }
-        return [("↑↓ jk", "select"), ("⏎", "run"), ("s", "stop"), ("␣", "output"), ("e", "edit"), ("n", "new"),
+        return [("↑↓ jk", "select"), ("⇥", showingGlobal ? "local" : "global"), ("⏎", "run"), ("s", "stop"), ("␣", "output"), ("e", "edit"), ("n", "new"),
                 ("x", deleteArmed ? "again to delete" : "delete"), ("ESC ⇧⌘A", "close")]
     }
 
@@ -302,6 +342,7 @@ struct ActionPanel: View {
         let run = action.flatMap { store.run(of: $0, in: session.directory) }
         switch (press.key, press.characters) {
         case (.escape, _): store.showingActions = false
+        case (.tab, _) where press.phase == .down: showingGlobal.toggle()
         case (.downArrow, _), (_, "j"): selected = min(selected + 1, actions.count)
         case (.upArrow, _), (_, "k"): selected = max(selected - 1, 0)
         case (.return, _) where press.phase == .down: if let action { self.run(action) } else { startNew() }
@@ -329,7 +370,7 @@ struct ActionPanel: View {
 
     private func startNew() {
         selected = actions.count
-        editing = Action(repo: session.repoPath)
+        editing = Action(repo: showingGlobal ? nil : session.repoPath)
     }
 }
 

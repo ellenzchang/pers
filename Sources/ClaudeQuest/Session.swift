@@ -640,6 +640,7 @@ final class AppStore: ObservableObject {
         return dir
     }()
     private static let saveURL = supportDirectory.appendingPathComponent("tabs.json")
+    static let seededGlobalKey = "seededGlobalActions"
     static let actionsURL = supportDirectory.appendingPathComponent("actions.json")
 
     init() {
@@ -651,6 +652,7 @@ final class AppStore: ObservableObject {
         let lastSelected = UserDefaults.standard.string(forKey: Self.selectedKey).flatMap(UUID.init)
         selectedId = sessions.first { $0.id == lastSelected }?.id ?? sessions.first?.id
         reloadActions()
+        seedGlobalActions()
         watchActions()
         // Output streams in constantly, so only state changes are forwarded to views observing the store.
         runsSubscription = $runs.sink { [weak self] runs in
