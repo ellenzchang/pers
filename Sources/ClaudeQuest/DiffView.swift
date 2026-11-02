@@ -97,6 +97,7 @@ struct DiffLine: View {
         switch row.kind {
         case .added: Theme.green
         case .removed: Theme.red
+        case .modified: Theme.gold
         case .hunk: Self.hunkColor
         case .context: nil
         }
@@ -110,14 +111,34 @@ struct DiffLine: View {
         if row.text.isEmpty { text = AttributedString(" ") }
         text.font = Theme.code
         if row.kind == .hunk { text.foregroundColor = Self.hunkColor }
-        if let tint {
+        let wordTint = row.kind == .modified ? Theme.green : tint
+        if let wordTint {
             for changed in row.changed {
                 let start = text.index(text.startIndex, offsetByCharacters: changed.lowerBound)
                 let end = text.index(start, offsetByCharacters: changed.count)
-                text[start..<end].backgroundColor = tint.opacity(0.4)
+                text[start..<end].backgroundColor = wordTint.opacity(0.4)
             }
         }
-        return text
+        return row.kind == .modified ? withRemovals(in: text) : text
+    }
+
+    private func withRemovals(in text: AttributedString) -> AttributedString {
+        func slice(_ range: Range<Int>) -> AttributedString {
+            let start = text.index(text.startIndex, offsetByCharacters: range.lowerBound)
+            return AttributedString(text[start..<text.index(start, offsetByCharacters: range.count)])
+        }
+        var result = AttributedString()
+        var position = 0
+        for removal in row.removals {
+            var removed = AttributedString(removal.text)
+            removed.font = Theme.code
+            removed.foregroundColor = Theme.red
+            removed.backgroundColor = Theme.red.opacity(0.4)
+            removed.strikethroughStyle = .single
+            result += slice(position..<removal.offset) + removed
+            position = removal.offset
+        }
+        return result + slice(position..<text.characters.count)
     }
 
     var body: some View {

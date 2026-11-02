@@ -15,12 +15,17 @@ enum DiffBase {
 }
 
 struct DiffRow: Equatable {
-    enum Kind { case context, added, removed, hunk }
+    enum Kind { case context, added, removed, modified, hunk }
+    struct Removal: Equatable {
+        var offset: Int
+        var text: String
+    }
     var kind: Kind
     var oldNumber: Int?
     var newNumber: Int?
     var text: String
     var changed: [Range<Int>] = []
+    var removals: [Removal] = []
     var highlighted: AttributedString?
 }
 
@@ -28,14 +33,14 @@ struct FileDiff: Identifiable, Equatable {
     var path: String
     var lines: [DiffRow]
     var id: String { path }
-    var added: Int { lines.filter { $0.kind == .added }.count }
-    var removed: Int { lines.filter { $0.kind == .removed }.count }
+    var added: Int { lines.filter { $0.kind == .added || $0.kind == .modified }.count }
+    var removed: Int { lines.filter { $0.kind == .removed || $0.kind == .modified }.count }
 
     func reference(to row: DiffRow) -> String? {
         switch row.kind {
         case .hunk: nil
         case .removed: row.oldNumber.map { "\(path):\($0) (removed)" }
-        case .added, .context: row.newNumber.map { "\(path):\($0)" }
+        case .added, .modified, .context: row.newNumber.map { "\(path):\($0)" }
         }
     }
 }
@@ -139,7 +144,7 @@ enum Git {
     /// Highlights each side of the diff as one document so multi-line comments and strings keep their color.
     private static func highlight(_ rows: inout [DiffRow]) {
         for side in [DiffRow.Kind.removed, .added] {
-            let indices = rows.indices.filter { rows[$0].kind == side || rows[$0].kind == .context }
+            let indices = rows.indices.filter { [side, .context, .modified].contains(rows[$0].kind) }
             let highlighted = SyntaxHighlighter.highlight(lines: indices.map { rows[$0].text })
             for (index, line) in zip(indices, highlighted) where rows[index].kind == side || side == .added {
                 rows[index].highlighted = line
@@ -159,24 +164,46 @@ enum Git {
         return rows
     }
 
-    /// Pairs each removed line with the added line at the same position in its block, like GitHub's inline highlights.
+    /// Merges each removed line with the added line at the same position in its block into one row, like GitHub's inline highlights.
     private static func markWordChanges(in rows: inout [DiffRow]) {
+        var merged: [DiffRow] = []
         var index = 0
         while index < rows.count {
-            guard rows[index].kind == .removed else { index += 1; continue }
+            guard rows[index].kind == .removed else { merged.append(rows[index]); index += 1; continue }
             let removedEnd = rows[index...].firstIndex { $0.kind != .removed } ?? rows.count
             let addedEnd = rows[removedEnd...].firstIndex { $0.kind != .added } ?? rows.count
-            for offset in 0..<min(removedEnd - index, addedEnd - removedEnd) {
-                let removed = Array(rows[index + offset].text), added = Array(rows[removedEnd + offset].text)
-                let (removedChanges, addedChanges) = changedRanges(removed, added)
-                let changedCount = removedChanges.reduce(0) { $0 + $1.count }
-                // Lines that barely resemble each other read better with the whole-line tint alone.
-                guard changedCount * 2 <= max(removed.count, added.count) else { continue }
-                rows[index + offset].changed = removedChanges
-                rows[removedEnd + offset].changed = addedChanges
+            let removed = rows[index..<removedEnd], added = rows[removedEnd..<addedEnd]
+            for (old, new) in zip(removed, added) {
+                merged += merge(old, new).map { [$0] } ?? [old, new]
             }
+            merged += removed.dropFirst(added.count) + added.dropFirst(removed.count)
             index = addedEnd
         }
+        rows = merged
+    }
+
+    private static func merge(_ removed: DiffRow, _ added: DiffRow) -> DiffRow? {
+        let old = Array(removed.text), new = Array(added.text)
+        let (oldChanges, newChanges) = changedRanges(old, new)
+        let changedCount = oldChanges.reduce(0) { $0 + $1.count }
+        // Lines that barely resemble each other read better as separate removed and added rows.
+        guard changedCount * 2 <= max(old.count, new.count) else { return nil }
+        var shift = 0
+        let removals = oldChanges.map { range in
+            defer { shift += range.count }
+            return DiffRow.Removal(offset: offset(ofUnchanged: range.lowerBound - shift, in: newChanges), text: String(old[range]))
+        }
+        return DiffRow(kind: .modified, oldNumber: removed.oldNumber, newNumber: added.newNumber, text: added.text, changed: newChanges, removals: removals)
+    }
+
+    /// The index in the new text where removed text following `unchanged` unchanged characters belongs.
+    private static func offset(ofUnchanged unchanged: Int, in changes: [Range<Int>]) -> Int {
+        var shift = 0
+        for change in changes {
+            if change.lowerBound - shift >= unchanged { break }
+            shift += change.count
+        }
+        return unchanged + shift
     }
 
     private static func changedRanges(_ old: [Character], _ new: [Character]) -> (old: [Range<Int>], new: [Range<Int>]) {
