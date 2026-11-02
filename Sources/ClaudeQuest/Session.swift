@@ -485,9 +485,21 @@ final class Session: ObservableObject, Identifiable {
         messages.append(ChatMessage(speaker: .claude, text: question.markdown))
         messages.append(ChatMessage(speaker: .user, text: text))
         prompt.answers[question.text] = text
+        prompt.selected = []
         guard prompt.question == nil else { return self.prompt = prompt }
         self.prompt = nil
         respond(to: prompt, with: ["behavior": "allow", "updatedInput": prompt.input.merging(["answers": prompt.answers]) { $1 }])
+    }
+
+    func toggle(_ label: String) {
+        guard var prompt else { return }
+        if let index = prompt.selected.firstIndex(of: label) { prompt.selected.remove(at: index) } else { prompt.selected.append(label) }
+        self.prompt = prompt
+    }
+
+    func submitSelection() {
+        guard let selected = prompt?.selected, !selected.isEmpty else { return }
+        reply(selected.joined(separator: ", "))
     }
 
     private func respond(to prompt: PermissionPrompt, with decision: [String: Any]) {

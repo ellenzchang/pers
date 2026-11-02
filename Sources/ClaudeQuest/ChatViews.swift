@@ -479,7 +479,7 @@ struct DialogueBox: View {
         guard navigator.active else {
             let toggles = session.showingDiff ? diffControls : [diffToggle, logToggle]
             if isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
-            return choosing ? [("↑ ↓", "choose"), ("⏎", "select")] + toggles : toggles
+            return toggles
         }
         if session.showingDiff {
             return [("j k", "line"), ("g G", "top/end"), ("J K", "file"), ("⏎", "quote")] + diffControls + [("ESC i", "type")]
@@ -511,10 +511,10 @@ struct DialogueBox: View {
         guard choosing, let prompt = session.prompt, press.key != .escape, isPlain(press) else { return .ignored }
         let entries = promptEntries(prompt, session: session, navigator: navigator)
         let index = min(navigator.promptIndex, entries.count - 1)
-        switch press.key {
-        case .upArrow: navigator.promptIndex = max(index - 1, 0)
-        case .downArrow: navigator.promptIndex = min(index + 1, entries.count - 1)
-        case .return: entries[index].action()
+        switch (press.key, press.characters) {
+        case (.upArrow, _), (_, "k"): navigator.promptIndex = max(index - 1, 0)
+        case (.downArrow, _), (_, "j"): navigator.promptIndex = min(index + 1, entries.count - 1)
+        case (.return, _): entries[index].action()
         default: break
         }
         return .handled
@@ -767,6 +767,7 @@ private struct MenuEntry: Identifiable {
     var color: Color = Theme.ice
     var shortcut: KeyEquivalent?
     var help = ""
+    var checked: Bool?
     var action: () -> Void
     var id: String { title }
 }
@@ -800,10 +801,17 @@ private struct CommandMenu: View {
 @MainActor
 private func promptEntries(_ prompt: PermissionPrompt, session: Session, navigator: Navigator) -> [MenuEntry] {
     if let question = prompt.question {
-        let options = question.options.enumerated().map { index, option in
-            MenuEntry(title: option.label, index: index, help: option.description) { session.reply(option.label) }
+        var entries = question.options.enumerated().map { index, option in
+            MenuEntry(title: option.label, index: index, help: option.description,
+                      checked: question.multiSelect ? prompt.selected.contains(option.label) : nil) {
+                if question.multiSelect { session.toggle(option.label) } else { session.reply(option.label) }
+            }
         }
-        return options + [MenuEntry(title: "Type your own answer", index: options.count, color: Theme.aqua,
+        if question.multiSelect {
+            entries.append(MenuEntry(title: "Submit", index: entries.count, color: Theme.green,
+                                     help: "Send the checked options") { session.submitSelection() })
+        }
+        return entries + [MenuEntry(title: "Type your own answer", index: entries.count, color: Theme.aqua,
                                     help: "Write your own answer in the input field") { navigator.typingAnswer = true }]
     }
     var entries = [MenuEntry(title: "Allow", index: 0) { session.answer(prompt, allow: true) }]
@@ -946,7 +954,7 @@ private struct PermissionBox: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: -8) {
-            NamePlate(name: title, color: Theme.gold, shadowColor: Theme.ocean)
+            NamePlate(name: title, color: accent, shadowColor: Theme.ocean)
                 .padding(.horizontal, 18)
                 .zIndex(1)
             VStack(alignment: .leading, spacing: 12) {
@@ -958,10 +966,22 @@ private struct PermissionBox: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.top, 6)
-            .panel(accent: Theme.gold, padding: 18)
+            .panel(accent: accent, padding: 18)
+            .overlay(alignment: .bottomTrailing) {
+                if highlighted != nil {
+                    KeyHints(hints: [("↑ ↓ j k", "choose"), ("⏎", prompt.question?.multiSelect == true ? "check" : "select")])
+                        .padding(.horizontal, 10)
+                        .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
+                        .padding(.trailing, 18)
+                        .offset(y: 10)
+                }
+            }
         }
         .frame(width: 300)
+        .animation(Theme.isTerminal ? nil : .easeInOut(duration: Theme.isQuest ? 0.35 : 0.15), value: navigator.active)
     }
+
+    private var accent: Color { navigator.active ? Theme.cyan : Theme.gold }
 
     private var title: String {
         guard let question = prompt.question else { return "USE \(prompt.tool.uppercased())?" }
@@ -1014,7 +1034,7 @@ private struct OptionRow: View {
     var body: some View {
         Button(action: entry.action) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(isActive ? "▶" : "○")
+                Text(entry.checked.map { $0 ? "☑" : "☐" } ?? (isActive ? "▶" : "○"))
                     .foregroundStyle(isActive ? Theme.gold : Theme.dim)
                     .frame(width: 14)
                 VStack(alignment: .leading, spacing: 2) {

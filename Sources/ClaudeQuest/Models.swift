@@ -86,6 +86,7 @@ struct PermissionPrompt {
     var suggestions: [[String: Any]]
     var questions: [Question]
     var answers: [String: String] = [:]
+    var selected: [String] = []
 
     /// The first question still waiting for an answer, when the prompt is an AskUserQuestion call.
     var question: Question? { questions.first { answers[$0.text] == nil } }
@@ -94,6 +95,7 @@ struct PermissionPrompt {
     struct Question {
         var text: String
         var header: String
+        var multiSelect: Bool
         var options: [(label: String, description: String)]
 
         var markdown: String {
@@ -104,6 +106,7 @@ struct PermissionPrompt {
         init(json: [String: Any]) {
             text = json["question"] as? String ?? ""
             header = json["header"] as? String ?? ""
+            multiSelect = json["multiSelect"] as? Bool ?? false
             options = (json["options"] as? [[String: Any]] ?? []).map {
                 ($0["label"] as? String ?? "", $0["description"] as? String ?? "")
             }
