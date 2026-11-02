@@ -31,7 +31,7 @@ struct MapView: View {
             .padding(.bottom, 18)
             .panel(accent: Theme.gold, padding: 18, opacity: 1)
             .overlay(alignment: .bottomTrailing) {
-                KeyHints(hints: [("↑↓ jk", "select"), ("⏎", "go"), ("ESC ⌃M", "back")])
+                KeyHints(hints: [("↑↓ jk", "select"), ("⏎", "go"), ("ESC ⌃m", "back")])
                     .padding(.horizontal, 10)
                     .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                     .padding(.trailing, 18)

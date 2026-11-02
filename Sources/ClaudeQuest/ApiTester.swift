@@ -108,7 +108,7 @@ extension AppStore {
         openFolder(path)
     }
 
-    /// Steps through requests across folders like ⌘1 ⌘2 step through tabs, stopping on empty folders too.
+    /// Steps through requests across folders like ⌘1 2 step through tabs, stopping on empty folders too.
     func cycleRequest(by offset: Int) {
         let stops = requestFolders.flatMap { folder -> [(folder: String, request: UUID?)] in
             let ids = requests.filter { $0.repo == folder }.map(\.id)
@@ -354,7 +354,7 @@ struct APITester: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 10) {
-            KeyHints(hints: [("⌃M", "map")])
+            KeyHints(hints: [("⌃m", "map")])
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(store.requestFolders, id: \.self) { path in

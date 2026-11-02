@@ -353,7 +353,7 @@ struct ActionPanel: View {
         if editing != nil { return [("⏎", "save"), ("⇥", "next field"), ("⌥⏎", "new line"), ("ESC", "cancel")] }
         if choosing != nil { return [("↑↓ jk", "select"), ("⏎", "run"), ("ESC", "cancel")] }
         return [("↑↓ jk", "select"), ("⇥", showingGlobal ? "local" : "global"), ("⏎", "run"), ("s", "stop"), ("␣", "output"), ("e", "edit"), ("n", "new"),
-                ("x", deleteArmed ? "again to delete" : "delete"), ("ESC ⇧⌘A", "close")]
+                ("x", deleteArmed ? "again to delete" : "delete"), ("ESC ⌘A", "close")]
     }
 
     private func editor(for action: Action) -> some View {

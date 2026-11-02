@@ -99,7 +99,7 @@ struct MessageLog: View {
     private var navigationHints: [(key: String, action: String)] {
         [("j k", "message"), ("g G", "first/last"), ("f", navigator.forkArmed ? "again to fork from this message" : "fork"),
          ("y", navigator.yankArmed ? "again to copy this message" : "copy"),
-         ("⌘D", "diff"), ("ESC i", "type")]
+         ("⌘d", "diff"), ("ESC i", "type")]
     }
 
     private func scrollDown(_ proxy: ScrollViewProxy, animated: Bool = true) {
@@ -362,9 +362,7 @@ struct DialogueBox: View {
                 .zIndex(1)
                 ZStack(alignment: .topLeading) {
                     if session.draft.isEmpty {
-                        Text(exitArmed ? "Press Ctrl-C again to exit"
-                             : inTerminal ? "Run a shell command…  (⇥ back to Claude)"
-                                        : "Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell · ⇥ terminal)")
+                        Text(placeholder)
                             .font(Theme.body)
                             .foregroundStyle(Theme.dim)
                             .padding(.leading, 5)
@@ -447,7 +445,7 @@ struct DialogueBox: View {
                 .background(Theme.codeBackground.opacity(isShell && !inTerminal ? 0.9 : 0))
                 .panel(accent: plateColor, dark: inTerminal, padding: 16, morphing: true)
                 .overlay(alignment: .bottomTrailing) {
-                    KeyHints(hints: navigationHints + [("⌘J K", "model"), ("⇧⌘M", "mode"), ("⇧⌘E", "effort"), ("⌃R", "reset"), ("⌃L", "load")])
+                    KeyHints(hints: navigationHints + [("⌘j k", "model"), ("⌘M", "mode"), ("⌘E", "effort"), ("⌃r", "reset"), ("⌃l", "load")])
                         .padding(.horizontal, 10)
                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                         .padding(.trailing, 18)
@@ -473,9 +471,9 @@ struct DialogueBox: View {
     }
 
     private var navigationHints: [(key: String, action: String)] {
-        let diffToggle = ("⌘D", session.showingDiff ? "close diff" : "diff")
-        let logToggle = ("⌘L", session.showingLog ? "close log" : "log")
-        let diffControls = [("⇧⌘B", session.diffBase == .unstaged ? "vs main" : "unstaged"), ("⇧⌘O", "IntelliJ"), diffToggle, logToggle]
+        let diffToggle = ("⌘d", session.showingDiff ? "close diff" : "diff")
+        let logToggle = ("⌘l", session.showingLog ? "close log" : "log")
+        let diffControls = [("⌘B", session.diffBase == .unstaged ? "vs main" : "unstaged"), ("⌘O", "IntelliJ"), diffToggle, logToggle]
         guard navigator.active else {
             let toggles = session.showingDiff ? diffControls : [diffToggle, logToggle]
             if isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
@@ -586,6 +584,13 @@ struct DialogueBox: View {
         }
         if inTerminal { return "TERMINAL" }
         return isShell ? "SHELL COMMAND" : "WHAT WILL YOU DO?"
+    }
+
+    private var placeholder: String {
+        if exitArmed { return "Press ⌃c again to exit" }
+        if navigator.active { return "Press i to speak to Claude" }
+        if inTerminal { return "Run a command in the terminal…  (⇥ back to Claude)" }
+        return "Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell · ⇥ terminal)"
     }
 
     private var plateColor: Color {
