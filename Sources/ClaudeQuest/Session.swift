@@ -15,8 +15,9 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var contextTokens: Int?
     @Published private(set) var contextWindow: Int?
     @Published var messages: [ChatMessage]
-    @Published var draft = ""
+    @Published var draft = "" { didSet { if draft.isEmpty { pastes = [:] } } }
     @Published var images: [Data] = []
+    var pastes: [Int: String] = [:]
     @Published private(set) var inputHistory: [String] = []
     @Published var liveModel: String?
     @Published private(set) var outfit = Int.random(in: 0..<1000)
@@ -68,6 +69,7 @@ final class Session: ObservableObject, Identifiable {
         contextWindow = snapshot.contextWindow
         messages = snapshot.messages
         draft = snapshot.draft ?? ""
+        pastes = snapshot.pastes ?? [:]
         inputHistory = snapshot.inputHistory ?? []
         forkedFrom = snapshot.forkedFrom
         forkAt = snapshot.forkAt
@@ -95,7 +97,7 @@ final class Session: ObservableObject, Identifiable {
     var snapshot: SessionSnapshot {
         SessionSnapshot(id: id, directory: directory, sessionId: sessionId, model: model, mode: mode,
                         effort: effort, advising: advising, tokens: tokens, contextTokens: contextTokens, contextWindow: contextWindow,
-                        messages: messages, outfit: outfit, draft: draft, inputHistory: inputHistory,
+                        messages: messages, outfit: outfit, draft: draft, pastes: pastes, inputHistory: inputHistory,
                         forkedFrom: forkedFrom, forkAt: forkAt)
     }
 

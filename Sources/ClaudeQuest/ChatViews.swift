@@ -357,7 +357,7 @@ struct DialogueBox: View {
                         .foregroundStyle(isShell ? plateColor : Theme.text)
                         .scrollContentBackground(.hidden)
                         .focused($focused)
-                        .background(ImagePaste(onPaste: pasteImages))
+                        .background(DraftKeys(session: session, onImagePaste: pasteImages))
                         .background(DraftFormatting(text: session.draft))
                         .onKeyPress(phases: [.down, .repeat], action: navigate)
                         .onKeyPress(phases: [.down, .repeat], action: choose)
@@ -593,7 +593,7 @@ struct DialogueBox: View {
 
     /// The draft as it would be sent, so a recalled terminal command comes back in terminal mode.
     private var shownEntry: String {
-        (isTerminal ? Session.terminalMarker : "") + session.draft
+        (isTerminal ? Session.terminalMarker : "") + session.expandedDraft
     }
 
     private func show(_ entry: String) {
@@ -662,9 +662,9 @@ struct DialogueBox: View {
         guard !session.draft.trimmed.isEmpty || (!session.images.isEmpty && !inTerminal) else { return }
         if isAnswering {
             guard !session.draft.trimmed.isEmpty else { return }
-            session.reply(session.draft.trimmed)
+            session.reply(session.expandedDraft.trimmed)
         } else if !session.isBusy {
-            session.send(inTerminal ? shownEntry : session.draft)
+            session.send(inTerminal ? shownEntry : session.expandedDraft)
         } else {
             return
         }
@@ -1067,16 +1067,23 @@ private struct AttachmentThumbnail: View {
     }
 }
 
-/// TextEditor wraps an NSTextView that handles ⌘V itself, so onPasteCommand never fires; catch the key first
-/// when the clipboard holds an image and no text.
-private struct ImagePaste: NSViewRepresentable {
-    var onPaste: () -> Void
+/// TextEditor wraps an NSTextView that handles its keys itself, so onPasteCommand and onKeyPress never see these; catch them first.
+/// ⌘V with an image and no text attaches it, and with long text pastes a placeholder. The placeholder then acts as one character
+/// for ⌫, ⌦ and the arrow keys.
+private struct DraftKeys: NSViewRepresentable {
+    var session: Session
+    var onImagePaste: () -> Void
 
     func makeNSView(context: Context) -> NSView { Probe() }
-    func updateNSView(_ view: NSView, context: Context) { (view as? Probe)?.onPaste = onPaste }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        (view as? Probe)?.session = session
+        (view as? Probe)?.onImagePaste = onImagePaste
+    }
 
     private final class Probe: NSView {
-        var onPaste: () -> Void = {}
+        var session: Session?
+        var onImagePaste: () -> Void = {}
         private var monitor: Any?
 
         deinit { monitor.map(NSEvent.removeMonitor) }
@@ -1086,13 +1093,50 @@ private struct ImagePaste: NSViewRepresentable {
             monitor = nil
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                let pasteboard = NSPasteboard.general
-                guard let self, event.window === window, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                      event.charactersIgnoringModifiers == "v", pasteboard.string(forType: .string) == nil,
-                      pasteboard.canReadObject(forClasses: [NSImage.self]) else { return event }
-                onPaste()
-                return nil
+                guard let self, event.window === window else { return event }
+                return MainActor.assumeIsolated { self.handle(event) ? nil : event }
             }
+        }
+
+        @MainActor
+        private func handle(_ event: NSEvent) -> Bool {
+            guard let session, let view = window?.firstResponder as? NSTextView, view.string == session.draft else { return false }
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if modifiers == .command, event.charactersIgnoringModifiers == "v" { return paste(into: view, session) }
+            let cursor = view.selectedRange()
+            guard cursor.length == 0 else { return false }
+            let placeholders = Session.placeholderPattern.matches(in: view.string, range: NSRange(location: 0, length: (view.string as NSString).length)).map(\.range)
+            switch event.keyCode {
+            case 51:
+                guard let range = placeholders.first(where: { $0.location < cursor.location && cursor.location <= NSMaxRange($0) }) else { return false }
+                view.insertText("", replacementRange: range)
+            case 117:
+                guard let range = placeholders.first(where: { $0.location <= cursor.location && cursor.location < NSMaxRange($0) }) else { return false }
+                view.insertText("", replacementRange: range)
+            case 123 where modifiers.subtracting([.function, .numericPad]).isEmpty:
+                guard let range = placeholders.first(where: { $0.location < cursor.location && cursor.location <= NSMaxRange($0) }) else { return false }
+                view.setSelectedRange(NSRange(location: range.location, length: 0))
+            case 124 where modifiers.subtracting([.function, .numericPad]).isEmpty:
+                guard let range = placeholders.first(where: { $0.location <= cursor.location && cursor.location < NSMaxRange($0) }) else { return false }
+                view.setSelectedRange(NSRange(location: NSMaxRange(range), length: 0))
+            default:
+                return false
+            }
+            return true
+        }
+
+        @MainActor
+        private func paste(into view: NSTextView, _ session: Session) -> Bool {
+            let pasteboard = NSPasteboard.general
+            guard let text = pasteboard.string(forType: .string) else {
+                guard pasteboard.canReadObject(forClasses: [NSImage.self]) else { return false }
+                onImagePaste()
+                return true
+            }
+            let shown = session.pasted(text)
+            guard shown != text else { return false }
+            view.insertText(shown, replacementRange: view.selectedRange())
+            return true
         }
     }
 }

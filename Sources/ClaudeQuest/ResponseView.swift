@@ -206,6 +206,47 @@ final class ResponseBrowser: ObservableObject {
         collapsed = []
     }
 
+    /// The row under the cursor with everything below it, as JSON.
+    var selectedText: String? {
+        guard let row = current else { return nil }
+        guard row.kind != .text else { return row.value }
+        let start = rows.firstIndex { $0.id == row.id } ?? 0
+        let subtree = rows[start...].prefix { $0.id == row.id || $0.depth > row.depth }
+        let parent = row.path.isEmpty ? nil : rows.first { $0.id == ResponseRow.id(of: row.path.dropLast()) }
+        var tokens: [(depth: Int, text: String, closes: Bool, opens: Bool)] = []
+        var open: [ResponseRow] = []
+        var parents = [parent?.kind]
+        for member in subtree {
+            while let top = open.last, member.depth <= top.depth {
+                open.removeLast()
+                parents.removeLast()
+                tokens.append((top.depth, top.kind == .object ? "}" : "]", true, false))
+            }
+            let label = parents.last == .object ? Self.quoted(member.key ?? "") + ": " : ""
+            let empty = member.value == "{0}" || member.value == "[0]"
+            switch member.kind {
+            case _ where empty: tokens.append((member.depth, label + (member.kind == .object ? "{}" : "[]"), false, false))
+            case .object, .array:
+                tokens.append((member.depth, label + (member.kind == .object ? "{" : "["), false, true))
+                open.append(member)
+                parents.append(member.kind)
+            case .string: tokens.append((member.depth, label + Self.quoted(String(member.value.dropFirst().dropLast())), false, false))
+            default: tokens.append((member.depth, label + member.value, false, false))
+            }
+        }
+        for top in open.reversed() { tokens.append((top.depth, top.kind == .object ? "}" : "]", true, false)) }
+        return tokens.enumerated().map { index, token in
+            let continues = index + 1 < tokens.count && !tokens[index + 1].closes
+            return String(repeating: "  ", count: token.depth - row.depth) + token.text + (continues && !token.opens ? "," : "")
+        }.joined(separator: "\n")
+    }
+
+    private static func quoted(_ text: String) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+        return (try? encoder.encode(text)).map { String(decoding: $0, as: UTF8.self) } ?? "\"\(text)\""
+    }
+
     func collapseAll() {
         collapsed = Set(rows.filter { $0.isContainer && $0.depth > 0 }.map(\.id))
         cursor = visible.first?.id
@@ -246,6 +287,7 @@ struct ResponseView: View {
     var response: APIResponse
     @ObservedObject var browser: ResponseBrowser
     var selected: Bool
+    var yankArmed: APITester.Yank?
     var focus: FocusState<RequestField?>.Binding
     var browse: () -> Void
 
@@ -266,7 +308,7 @@ struct ResponseView: View {
                             ForEach(browser.visible) { row in
                                 ResponseRowView(row: row, collapsed: browser.collapsed.contains(row.id), query: browser.query,
                                                 isCurrentMatch: browser.currentMatch?.id == row.id,
-                                                isSelected: browser.cursor == row.id, isActive: selected)
+                                                isSelected: browser.cursor == row.id, isActive: selected, isArmed: yankArmed != nil)
                                     .id(row.id)
                                     .onTapGesture {
                                         browser.cursor = row.id
@@ -285,6 +327,7 @@ struct ResponseView: View {
                 }
             }
             .background(Theme.codeBackground)
+            .overlay { if yankArmed == .whole { Rectangle().strokeBorder(Theme.gold, lineWidth: 2) } }
         }
         .frame(maxHeight: .infinity)
         .panel(accent: response.color, padding: 18, selected: selected, opacity: 1)
@@ -336,6 +379,7 @@ private struct ResponseRowView: View {
     var isCurrentMatch: Bool
     var isSelected: Bool
     var isActive: Bool
+    var isArmed: Bool
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -347,7 +391,7 @@ private struct ResponseRowView: View {
         }
         .padding(.vertical, 1)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(isSelected ? Theme.cyan.opacity(isActive ? 0.25 : 0.1) : .clear)
+        .background(isSelected ? (isArmed ? Theme.gold : Theme.cyan).opacity(isActive ? 0.25 : 0.1) : .clear)
         .contentShape(Rectangle())
     }
 

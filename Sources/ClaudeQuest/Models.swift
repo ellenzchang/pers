@@ -72,6 +72,7 @@ struct SessionSnapshot: Codable {
     var messages: [ChatMessage]
     var outfit: Int?
     var draft: String?
+    var pastes: [Int: String]?
     var inputHistory: [String]?
     var forkedFrom: UUID?
     var forkAt: String?

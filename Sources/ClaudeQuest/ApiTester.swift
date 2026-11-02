@@ -193,12 +193,14 @@ enum RequestField: Hashable {
 
 struct APITester: View {
     enum Pane { case requests, response }
+    enum Yank { case selection, whole }
 
     @EnvironmentObject var store: AppStore
     @StateObject private var browser = ResponseBrowser()
     @ViewState private var sending: Set<APIRequest.ID> = []
     @ViewState private var pane = Pane.requests
     @ViewState private var deleteArmed = false
+    @ViewState private var yankArmed: Yank?
     @ViewState private var askMode = ClaudeBar.Mode.claude
     @ViewState private var dismissedReply = 0
     @FocusState private var focused: RequestField?
@@ -216,7 +218,7 @@ struct APITester: View {
                                   send: { send(request) }, delete: { delete(request) })
                         .id(request.id)
                     if let response = store.responses[request.id] {
-                        ResponseView(response: response, browser: browser, selected: pane == .response,
+                        ResponseView(response: response, browser: browser, selected: pane == .response, yankArmed: yankArmed,
                                      focus: $focused, browse: { pane = .response; focused = .page })
                     } else {
                         Spacer(minLength: 0)
@@ -238,7 +240,7 @@ struct APITester: View {
         .onExitCommand { if focused != .page { focused = .page } }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             ClaudeBar(session: store.requestSession, mode: askMode, focus: $focused, dismissed: $dismissedReply,
-                      hints: hints, highlighted: deleteArmed ? "x" : nil)
+                      hints: hints, highlighted: armedKey)
         }
         .onAppear {
             store.requestSession.directory = store.selected?.directory ?? NSHomeDirectory()
@@ -250,14 +252,20 @@ struct APITester: View {
         .onChange(of: store.selectedRequestId) { browser.show(store.selectedRequestId.flatMap { store.responses[$0] }) }
     }
 
+    private var armedKey: String? {
+        if deleteArmed { return "x" }
+        return yankArmed.map { $0 == .selection ? "y" : "Y" }
+    }
+
     private var hints: [(key: String, action: String)] {
         switch focused {
-        case .page, nil where pane == .requests:
+        case .page where pane == .requests, nil where pane == .requests:
             return [("j k", "request"), ("J K", "folder"), ("⏎", "send"), ("e", "url"), ("r", "name"), ("h", "headers"), ("b", "body"),
-                    ("m", "method"), ("n", "new"), ("x", deleteArmed ? "again to delete" : "delete"), ("⇥", "response"), ("c", "claude"), ("t", "terminal")]
+                    ("m", "method"), ("n", "new"), ("x", deleteArmed ? "again to delete" : "delete"), ("⇥", "response"), ("c", "claude"), ("t", "terminal"), ("o", "chat")]
         case .page, nil:
             return [("j k", "row"), ("g G", "top/end"), ("⏎ ␣", "expand"), ("h l", "fold"), ("E C", "all"), ("/", "search"),
-                    ("n N", "match"), ("H", "headers"), ("⇥", "request"), ("c", "claude"), ("t", "terminal")]
+                    ("y", yankArmed == .selection ? "press y again to yank selection" : "yank"), ("Y", yankArmed == .whole ? "press Y again to yank all" : "yank all"),
+                    ("n N", "match"), ("H", "headers"), ("⇥", "request"), ("c", "claude"), ("t", "terminal"), ("o", "chat")]
         case .search:
             return [("⏎", "browse"), ("ESC", "back")]
         default:
@@ -274,7 +282,9 @@ struct APITester: View {
         }
         guard press.modifiers.isDisjoint(with: [.command, .control, .option]) else { return .ignored }
         let armed = deleteArmed
+        let armedYank = yankArmed
         deleteArmed = false
+        yankArmed = nil
         let initial = press.phase == .down
         let session = store.requestSession
         let permission = session.prompt.flatMap { $0.question == nil ? $0 : nil }
@@ -287,8 +297,9 @@ struct APITester: View {
         case (.tab, _) where initial: pane = pane == .requests ? .response : .requests
         case (_, "c") where initial: ask(.claude)
         case (_, "t") where initial: ask(.terminal)
+        case (_, "o") where initial: store.page = .sessions
         case (_, "s") where initial && session.isBusy: session.stop()
-        default: return pane == .requests ? requestKey(press, deleteArmed: armed) : responseKey(press)
+        default: return pane == .requests ? requestKey(press, deleteArmed: armed) : responseKey(press, yankArmed: armedYank)
         }
         return .handled
     }
@@ -318,7 +329,7 @@ struct APITester: View {
         return .handled
     }
 
-    private func responseKey(_ press: KeyPress) -> KeyPress.Result {
+    private func responseKey(_ press: KeyPress, yankArmed armed: Yank?) -> KeyPress.Result {
         let initial = press.phase == .down
         switch (press.key, press.characters) {
         case (.downArrow, _), (_, "j"): browser.move(by: 1)
@@ -334,6 +345,8 @@ struct APITester: View {
         case (_, "n") where initial: browser.nextMatch(by: 1)
         case (_, "N") where initial: browser.nextMatch(by: -1)
         case (_, "H") where initial: browser.showingHeaders.toggle()
+        case (_, "y") where initial: yank(.selection, armed: armed)
+        case (_, "Y") where initial: yank(.whole, armed: armed)
         default: return .ignored
         }
         return .handled
@@ -373,6 +386,15 @@ struct APITester: View {
                 .padding(.trailing, 14)
             }
         }
+    }
+
+    /// Like yanking a message: the first press arms and the second copies.
+    private func yank(_ kind: Yank, armed: Yank?) {
+        guard armed == kind else { return yankArmed = kind }
+        let response = selectedIndex.flatMap { store.responses[store.requests[$0].id] }
+        guard let text = kind == .whole ? response?.body : browser.selectedText, !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func ask(_ mode: ClaudeBar.Mode) {
