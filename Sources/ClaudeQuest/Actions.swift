@@ -10,11 +10,22 @@ struct Action: Codable, Identifiable, Equatable {
     var environment = ""
     /// Output that means a long-running command, like a server, has finished starting.
     var readyMarker = ""
+    /// One option per line. When set, running asks which one and exports it as `$CHOICE`.
+    var choices: String?
 
     var name: String { nickname.trimmed.isEmpty ? command : nickname.trimmed }
 
-    var script: String {
-        (variables.map { "export " + $0 } + [command]).joined(separator: "\n")
+    var choiceList: [String] {
+        (choices ?? "").split(separator: "\n").map(\.trimmed).filter { !$0.isEmpty }
+    }
+
+    func script(choice: String?) -> String {
+        let chosen = choice.map { ["export CHOICE=" + shellQuoted($0)] } ?? []
+        return (chosen + variables.map { "export " + $0 } + [command]).joined(separator: "\n")
+    }
+
+    private func shellQuoted(_ text: String) -> String {
+        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     /// Variables named like credentials whose value is typed in rather than looked up, so they'd sit in plain text in the save file.
@@ -51,14 +62,16 @@ final class ActionRun: ObservableObject, Identifiable {
     let id = UUID()
     let action: Action
     let directory: String
+    let choice: String?
     @Published private(set) var state = State.running
     @Published private(set) var output = ""
     private let process: Process
 
-    init(action: Action, directory: String) {
+    init(action: Action, directory: String, choice: String?) {
         self.action = action
         self.directory = directory
-        process = Session.shellProcess(action.script, in: directory)
+        self.choice = choice
+        process = Session.shellProcess(action.script(choice: choice), in: directory)
     }
 
     var isActive: Bool { state == .running || state == .ready }
@@ -123,14 +136,14 @@ extension AppStore {
     }
 
     /// Running an action that's already running restarts it, once the old processes have exited.
-    func run(_ action: Action, in directory: String) {
+    func run(_ action: Action, in directory: String, choice: String? = nil) {
         let previous = run(of: action, in: directory)
         let pids = previous?.stop() ?? []
         Task {
             for _ in 0..<100 where pids.contains(where: { kill($0, 0) == 0 }) {
                 try? await Task.sleep(for: .milliseconds(100))
             }
-            let run = ActionRun(action: action, directory: directory)
+            let run = ActionRun(action: action, directory: directory, choice: choice)
             runs.removeAll { $0.id == previous?.id }
             runs.append(run)
             run.start()
@@ -209,6 +222,8 @@ struct ActionPanel: View {
     /// Index into `actions`, where one past the end is the new-action button.
     @ViewState private var selected = 0
     @ViewState private var deleteArmed = false
+    @ViewState private var choosing: Action.ID?
+    @ViewState private var choiceIndex = 0
     @ViewState private var showingGlobal = false
     @FocusState private var focused: Bool
 
@@ -244,9 +259,13 @@ struct ActionPanel: View {
         .onKeyPress(phases: [.down, .repeat], action: handle)
         .onAppear { focused = true }
         .onChange(of: editing) { if editing == nil { focused = true } }
-        .onChange(of: selected) { deleteArmed = false }
+        .onChange(of: selected) {
+            deleteArmed = false
+            choosing = nil
+        }
         .onChange(of: showingGlobal) {
             editing = nil
+            choosing = nil
             selected = 0
         }
         .onChange(of: actions.count) { selected = min(selected, actions.count) }
@@ -272,6 +291,9 @@ struct ActionPanel: View {
                                 ActionRow(action: action, directory: session.directory,
                                           selected: focused && selected == index,
                                           expanded: expanded == action.id,
+                                          choices: choosing == action.id ? action.choiceList : [],
+                                          choiceIndex: choiceIndex,
+                                          pick: { run(action, choice: $0) },
                                           select: { selected = index },
                                           toggle: { toggleOutput(of: action) },
                                           run: { run(action) },
@@ -329,6 +351,7 @@ struct ActionPanel: View {
 
     private var hints: [(key: String, action: String)] {
         if editing != nil { return [("⏎", "save"), ("⇥", "next field"), ("⌥⏎", "new line"), ("ESC", "cancel")] }
+        if choosing != nil { return [("↑↓ jk", "select"), ("⏎", "run"), ("ESC", "cancel")] }
         return [("↑↓ jk", "select"), ("⇥", showingGlobal ? "local" : "global"), ("⏎", "run"), ("s", "stop"), ("␣", "output"), ("e", "edit"), ("n", "new"),
                 ("x", deleteArmed ? "again to delete" : "delete"), ("ESC ⇧⌘A", "close")]
     }
@@ -343,6 +366,7 @@ struct ActionPanel: View {
         guard editing == nil, press.modifiers.isDisjoint(with: [.command, .control, .option]) else { return .ignored }
         let action = selectedAction
         let run = action.flatMap { store.run(of: $0, in: session.directory) }
+        if let action, choosing == action.id { return handleChoice(press, of: action) }
         switch (press.key, press.characters) {
         case (.escape, _): store.showingActions = false
         case (.tab, _) where press.phase == .down: showingGlobal.toggle()
@@ -362,8 +386,27 @@ struct ActionPanel: View {
         return .handled
     }
 
-    private func run(_ action: Action) {
-        store.run(action, in: session.directory)
+    private func handleChoice(_ press: KeyPress, of action: Action) -> KeyPress.Result {
+        let choices = action.choiceList
+        switch (press.key, press.characters) {
+        case (.escape, _): choosing = nil
+        case (.downArrow, _), (_, "j"): choiceIndex = min(choiceIndex + 1, choices.count - 1)
+        case (.upArrow, _), (_, "k"): choiceIndex = max(choiceIndex - 1, 0)
+        case (.return, _) where press.phase == .down: run(action, choice: choices[choiceIndex])
+        default: break
+        }
+        return .handled
+    }
+
+    /// With choices, the first press asks which one and the pick runs it.
+    private func run(_ action: Action, choice: String? = nil) {
+        if choice == nil, !action.choiceList.isEmpty {
+            choiceIndex = 0
+            choosing = action.id
+            return
+        }
+        choosing = nil
+        store.run(action, in: session.directory, choice: choice)
         expanded = action.id
     }
 
@@ -383,6 +426,9 @@ private struct ActionRow: View {
     var directory: String
     var selected: Bool
     var expanded: Bool
+    var choices: [String]
+    var choiceIndex: Int
+    var pick: (String) -> Void
     var select: () -> Void
     var toggle: () -> Void
     var run: () -> Void
@@ -429,6 +475,21 @@ private struct ActionRow: View {
                         .disabled(run?.isActive == true)
                 }
                 .buttonStyle(.plain)
+                .padding(.leading, 22)
+            }
+            if !choices.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(choices.enumerated()), id: \.offset) { index, choice in
+                        Button { pick(choice) } label: {
+                            Text((index == choiceIndex ? "▶ " : "○ ") + choice)
+                                .foregroundStyle(index == choiceIndex ? Theme.gold : Theme.ice)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .font(Theme.body)
                 .padding(.leading, 22)
             }
             if expanded, let run { RunOutput(run: run) }
@@ -478,6 +539,8 @@ private struct ActionEditor: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             field("READY WHEN OUTPUT CONTAINS", "Started Application", text: $draft.readyMarker)
+            field("CHOICES (ASKED ON RUN, EXPORTED AS $CHOICE)", "finn\ntori", text: Binding(get: { draft.choices ?? "" },
+                                                                                        set: { draft.choices = $0.isEmpty ? nil : $0 }), lines: 1...6)
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
                 Button(action: cancel) { Chip(color: Theme.cyan) { Text("CANCEL") } }
