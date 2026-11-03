@@ -473,14 +473,14 @@ struct DialogueBox: View {
     private var navigationHints: [(key: String, action: String)] {
         let diffToggle = ("⌘d", session.showingDiff ? "close diff" : "diff")
         let logToggle = ("⌘l", session.showingLog ? "close log" : "log")
-        let diffControls = [("⌘B", session.diffBase == .unstaged ? "vs main" : "unstaged"), ("⌘O", "IntelliJ"), diffToggle, logToggle]
+        let diffControls = [("⌘B", session.diffBase == .unstaged ? "vs main" : "unstaged"), diffToggle, logToggle]
         guard navigator.active else {
             let toggles = session.showingDiff ? diffControls : [diffToggle, logToggle]
             if isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
             return toggles
         }
         if session.showingDiff {
-            return [("j k", "line"), ("g G", "top/end"), ("J K", "file"), ("⏎", "quote")] + diffControls + [("ESC i", "type")]
+            return diffControls + [("ESC i", "type")]
         }
         return []
     }
@@ -499,14 +499,8 @@ struct DialogueBox: View {
     /// While the options of a prompt are focused they own the keyboard, so the input field neither types nor browses history.
     private var choosing: Bool { session.prompt != nil && !navigator.typingAnswer && !navigator.active }
 
-    /// Arrow keys arrive flagged as numpad/function presses, so only real shortcut modifiers count; Shift+arrow is left for paging.
-    private func isPlain(_ press: KeyPress) -> Bool {
-        let isArrow = [.upArrow, .downArrow, .leftArrow, .rightArrow].contains(press.key)
-        return press.modifiers.isDisjoint(with: [.command, .control, .option]) && !(isArrow && press.modifiers.contains(.shift))
-    }
-
     private func choose(_ press: KeyPress) -> KeyPress.Result {
-        guard choosing, let prompt = session.prompt, press.key != .escape, isPlain(press) else { return .ignored }
+        guard choosing, let prompt = session.prompt, press.key != .escape, press.isPlain else { return .ignored }
         let entries = promptEntries(prompt, session: session, navigator: navigator)
         let index = min(navigator.promptIndex, entries.count - 1)
         switch (press.key, press.characters) {
@@ -530,21 +524,22 @@ struct DialogueBox: View {
             navigator.active = true
             return .handled
         }
-        guard isPlain(press) else { return .ignored }
-        let diff = session.diff
+        guard press.isPlain else { return .ignored }
+        if press.key == .escape || press.characters == "i" {
+            navigator.active = false
+            return .handled
+        }
+        if session.showingDiff {
+            _ = navigator.navigateDiff(press, in: session)
+            return .handled
+        }
         let messages = session.boxedMessages
-        let inDiff = session.showingDiff
         switch (press.key, press.characters) {
-        case (.escape, _), (_, "i"): navigator.active = false
-        case (.downArrow, _), (_, "j"):
-            if inDiff { navigator.moveLine(by: 1, in: diff) } else { navigator.moveMessage(by: 1, in: messages) }
-        case (.upArrow, _), (_, "k"):
-            if inDiff { navigator.moveLine(by: -1, in: diff) } else { navigator.moveMessage(by: -1, in: messages) }
-        case (_, "g"): if inDiff { navigator.setLine(0, in: diff) } else { navigator.setMessage(0, in: messages) }
-        case (_, "G"): if inDiff { navigator.setLine(.max, in: diff) } else { navigator.jumpToLatest(in: messages) }
-        case (_, "J"): navigator.moveFile(by: 1, in: diff)
-        case (_, "K"): navigator.moveFile(by: -1, in: diff)
-        case (_, "f") where press.phase == .down && !inDiff:
+        case (.downArrow, _), (_, "j"): navigator.moveMessage(by: 1, in: messages)
+        case (.upArrow, _), (_, "k"): navigator.moveMessage(by: -1, in: messages)
+        case (_, "g"): navigator.setMessage(0, in: messages)
+        case (_, "G"): navigator.jumpToLatest(in: messages)
+        case (_, "f") where press.phase == .down:
             guard let message = navigator.message(in: messages), !session.isTerminal(message) else { break }
             if navigator.forkArmed {
                 store.fork(session, at: message)
@@ -553,7 +548,7 @@ struct DialogueBox: View {
                 navigator.disarm()
                 navigator.forkArmed = true
             }
-        case (_, "y") where press.phase == .down && !inDiff:
+        case (_, "y") where press.phase == .down:
             guard let message = navigator.message(in: messages) else { break }
             if navigator.yankArmed {
                 NSPasteboard.general.clearContents()
@@ -562,10 +557,6 @@ struct DialogueBox: View {
             } else {
                 navigator.disarm()
                 navigator.yankArmed = true
-            }
-        case (.return, _):
-            if inDiff, let file = navigator.file(in: diff) {
-                session.quote(file.lines[navigator.line(in: diff)], in: file)
             }
         default: break
         }

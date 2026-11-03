@@ -14,7 +14,9 @@ final class Navigator: ObservableObject {
     @Published var newMessage = false
     @Published var promptIndex = 0
     @Published var typingAnswer = false
-    @Published var diffLine = 0
+    @Published var diffLine = 0 {
+        didSet { disarm() }
+    }
     @Published var diffPath: String? {
         didSet { diffLine = 0 }
     }
@@ -45,6 +47,35 @@ final class Navigator: ObservableObject {
         diffLine = min(max(line, 0), last)
     }
 
+    /// Diff keys work both from the input field in NAVIGATE mode and from the focused diff itself.
+    func navigateDiff(_ press: KeyPress, in session: Session) -> Bool {
+        let diff = session.diff
+        let file = file(in: diff)
+        let row = file?.lines.indices.contains(line(in: diff)) == true ? file?.lines[line(in: diff)] : nil
+        switch (press.key, press.characters) {
+        case (.downArrow, _), (_, "j"): moveLine(by: 1, in: diff)
+        case (.upArrow, _), (_, "k"): moveLine(by: -1, in: diff)
+        case (_, "g"): setLine(0, in: diff)
+        case (_, "G"): setLine(.max, in: diff)
+        case (_, "J"): moveFile(by: 1, in: diff)
+        case (_, "K"): moveFile(by: -1, in: diff)
+        case (_, "y") where press.phase == .down:
+            guard let row else { break }
+            if yankArmed {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(row.text, forType: .string)
+                disarm()
+            } else {
+                disarm()
+                yankArmed = true
+            }
+        case (.return, _):
+            if let file, let row { session.quote(row, in: file) }
+        default: return false
+        }
+        return true
+    }
+
     func moveFile(by delta: Int, in diff: [FileDiff]) {
         guard let index = diff.firstIndex(where: { $0.id == file(in: diff)?.id }) else { return }
         diffPath = diff[min(max(index + delta, 0), diff.count - 1)].id
@@ -66,5 +97,13 @@ final class Navigator: ObservableObject {
 
     func setMessage(_ index: Int, in messages: [ChatMessage]) {
         messageId = messages.isEmpty ? nil : messages[min(max(index, 0), messages.count - 1)].id
+    }
+}
+
+extension KeyPress {
+    /// Arrow keys arrive flagged as numpad/function presses, so only real shortcut modifiers count; Shift+arrow is left for paging.
+    var isPlain: Bool {
+        let isArrow = [.upArrow, .downArrow, .leftArrow, .rightArrow].contains(key)
+        return modifiers.isDisjoint(with: [.command, .control, .option]) && !(isArrow && modifiers.contains(.shift))
     }
 }

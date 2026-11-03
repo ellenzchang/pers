@@ -5,9 +5,14 @@ struct DiffView: View {
     @ObservedObject var scroller: LogScroller
     @ObservedObject var navigator: Navigator
     @ViewState private var viewportWidth: CGFloat = 0
+    @FocusState private var focused: Bool
 
     private var current: FileDiff? { navigator.file(in: session.diff) }
-    private var cursor: Int? { navigator.active ? navigator.line(in: session.diff) : nil }
+    private var cursor: Int? { navigator.active || focused ? navigator.line(in: session.diff) : nil }
+
+    private var lineHints: [(key: String, action: String)] {
+        [("j k", "line"), ("g G", "top/end"), ("⏎", "quote"), ("y", navigator.yankArmed ? "again to copy this line" : "copy")]
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -19,7 +24,10 @@ struct DiffView: View {
                         ScrollView([.horizontal, .vertical]) {
                             LazyVStack(alignment: .leading, spacing: 0) {
                                 ForEach(Array(current.lines.enumerated()), id: \.offset) { index, line in
-                                    DiffLine(row: line, selected: index == cursor, pinned: session.isQuoted(line, in: current)) {
+                                    DiffLine(row: line, selected: index == cursor, pinned: session.isQuoted(line, in: current),
+                                             hints: index == cursor ? lineHints : [], armedKey: navigator.armedKey) {
+                                        focused = true
+                                        navigator.setLine(index, in: session.diff)
                                         session.quote(line, in: current)
                                     }
                                 }
@@ -39,6 +47,12 @@ struct DiffView: View {
                 }
             }
             .background(Theme.codeBackground)
+            .focusable()
+            .focused($focused)
+            .focusEffectDisabled()
+            .onKeyPress(phases: [.down, .repeat]) { press in
+                press.isPlain && navigator.navigateDiff(press, in: session) ? .handled : .ignored
+            }
             .onAppear { scroller.position.scrollTo(x: 0, y: 0) }
             .onChange(of: current?.id) { scroller.position.scrollTo(x: 0, y: 0) }
             .onChange(of: navigator.diffLine) { scroller.position.scrollTo(id: navigator.line(in: session.diff)) }
@@ -56,9 +70,19 @@ struct DiffView: View {
                     }
                 }
                 .padding(8)
+                .padding(.bottom, 24)
             }
-            .frame(width: 150)
+            .frame(width: 240)
             .background(Theme.deep.opacity(0.6))
+            .overlay(alignment: .bottomTrailing) {
+                if cursor != nil {
+                    KeyHints(hints: [("J K", "file"), ("⌘O", "IntelliJ")])
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 2)
+                        .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
+                        .padding(8)
+                }
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -88,6 +112,8 @@ struct DiffLine: View {
     var numbered = true
     var selected: Bool
     var pinned: Bool
+    var hints: [(key: String, action: String)] = []
+    var armedKey: String?
     var onTap: () -> Void
     @ViewState private var hovering = false
 
@@ -152,6 +178,14 @@ struct DiffLine: View {
         .background(hovering || selected ? Theme.cyan.opacity(0.2) : .clear)
         .background(tint?.opacity(row.kind == .hunk ? 0.12 : 0.15) ?? .clear)
         .overlay(alignment: .leading) { if pinned { Theme.gold.frame(width: 3) } }
+        .overlay(alignment: .trailing) {
+            if !hints.isEmpty {
+                KeyHints(hints: hints, highlighted: armedKey)
+                    .padding(.horizontal, 10)
+                    .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
+                    .padding(.trailing, 6)
+            }
+        }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture(perform: onTap)
