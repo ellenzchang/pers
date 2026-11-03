@@ -216,11 +216,13 @@ enum Git {
             }
         }
         var keptOld = Set<Int>(), keptNew = Set<Int>()
+        var matches: [(old: Int, new: Int)] = []
         var i = 0, j = 0
         while i < x.count && j < y.count {
             if x[i] == y[j] {
                 keptOld.insert(i)
                 keptNew.insert(j)
+                matches.append((i, j))
                 i += 1
                 j += 1
             } else if lcs[i + 1][j] >= lcs[i][j + 1] {
@@ -229,7 +231,21 @@ enum Git {
                 j += 1
             }
         }
-        return (highlights(oldTokens, kept: keptOld, text: old), highlights(newTokens, kept: keptNew, text: new))
+        // Dropped from both sides, so the unchanged text still lines up when placing removals in the new line.
+        let joining = matches.filter {
+            isLoneSpace($0.old, in: oldTokens, kept: keptOld, text: old) || isLoneSpace($0.new, in: newTokens, kept: keptNew, text: new)
+        }
+        for match in joining {
+            keptOld.remove(match.old)
+            keptNew.remove(match.new)
+        }
+        return (highlights(oldTokens, kept: keptOld), highlights(newTokens, kept: keptNew))
+    }
+
+    /// A kept space between two changes, which reads better as part of one change.
+    private static func isLoneSpace(_ index: Int, in tokens: [Range<Int>], kept: Set<Int>, text: [Character]) -> Bool {
+        let isSpace = text[tokens[index]].allSatisfy(\.isWhitespace)
+        return isSpace && index > 0 && index < tokens.count - 1 && !kept.contains(index - 1) && !kept.contains(index + 1)
     }
 
     private static func tokenGroup(_ character: Character) -> Int? {
@@ -251,15 +267,10 @@ enum Git {
         return ranges
     }
 
-    /// Merges changed tokens into ranges, letting a lone unchanged space between two changes join them.
-    private static func highlights(_ tokens: [Range<Int>], kept: Set<Int>, text: [Character]) -> [Range<Int>] {
-        func isChanged(_ index: Int) -> Bool {
-            if !kept.contains(index) { return true }
-            let isSpace = text[tokens[index]].allSatisfy(\.isWhitespace)
-            return isSpace && index > 0 && index < tokens.count - 1 && !kept.contains(index - 1) && !kept.contains(index + 1)
-        }
+    /// Merges changed tokens into ranges.
+    private static func highlights(_ tokens: [Range<Int>], kept: Set<Int>) -> [Range<Int>] {
         var ranges: [Range<Int>] = []
-        for (index, token) in tokens.enumerated() where isChanged(index) {
+        for (index, token) in tokens.enumerated() where !kept.contains(index) {
             if let last = ranges.last, last.upperBound == token.lowerBound {
                 ranges[ranges.count - 1] = last.lowerBound..<token.upperBound
             } else {
