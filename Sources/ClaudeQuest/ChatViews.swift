@@ -474,15 +474,12 @@ struct DialogueBox: View {
         let diffToggle = ("⌘d", session.showingDiff ? "close diff" : "diff")
         let logToggle = ("⌘l", session.showingLog ? "close log" : "log")
         let diffControls = [("⌘B", session.diffBase == .unstaged ? "vs main" : "unstaged"), diffToggle, logToggle]
+        let toggles = session.showingDiff ? diffControls : [diffToggle, logToggle]
         guard navigator.active else {
-            let toggles = session.showingDiff ? diffControls : [diffToggle, logToggle]
             if isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
             return toggles
         }
-        if session.showingDiff {
-            return diffControls + [("ESC i", "type")]
-        }
-        return []
+        return toggles + [("ESC i", "type")]
     }
 
     private var menuEntries: [MenuEntry] {
