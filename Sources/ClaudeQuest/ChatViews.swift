@@ -581,7 +581,7 @@ struct DialogueBox: View {
         if exitArmed { return "Press ⌃c again to exit" }
         if navigator.active { return "Press i to speak to Claude" }
         if inTerminal { return "Run a command in the terminal…  (⇥ back to Claude)" }
-        return "Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell · ⇥ terminal)"
+        return "Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell · ⇥ terminal · esc navigate)"
     }
 
     private var plateColor: Color {
