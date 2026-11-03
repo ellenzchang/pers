@@ -215,6 +215,15 @@ final class Session: ObservableObject, Identifiable {
     /// Prefixes commands sent from terminal mode. Unlike `!` it can't be typed, so it never collides with a message.
     static let terminalMarker = "\u{1D}"
 
+    /// Like zsh-autosuggestions: the rest of the newest command, from zsh's history or this tab's, that starts
+    /// with the draft.
+    func terminalSuggestion(for draft: String) -> String? {
+        guard !draft.isEmpty else { return nil }
+        let tabCommands = inputHistory.filter { $0.hasPrefix(Self.terminalMarker) }.map { String($0.dropFirst()) }
+        let match = (ShellHistory.commands + tabCommands).last { $0.hasPrefix(draft) && $0 != draft }
+        return match.map { String($0.dropFirst(draft.count)) }
+    }
+
     func send(_ text: String) {
         guard !isBusy, !text.trimmed.isEmpty || !images.isEmpty else { return }
         checkTranscript()

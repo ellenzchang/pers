@@ -79,6 +79,19 @@ struct ClaudeBar: View {
                     focus.wrappedValue = .page
                     return .handled
                 }
+                .onKeyPress(.rightArrow) {
+                    guard let suggestion else { return .ignored }
+                    draft += suggestion
+                    return .handled
+                }
+                .background(alignment: .leading) {
+                    if let suggestion {
+                        (Text(draft).foregroundStyle(.clear) + Text(suggestion).foregroundStyle(Theme.dim))
+                            .font(Theme.body)
+                            .lineLimit(1)
+                            .allowsHitTesting(false)
+                    }
+                }
             if session.isBusy {
                 Button { session.stop() } label: { Chip(color: Theme.red) { Text("STOP") } }
                     .buttonStyle(.plain)
@@ -87,6 +100,11 @@ struct ClaudeBar: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .panel(accent: mode.color, dark: true, padding: 8, selected: typing, opacity: 1)
+    }
+
+    private var suggestion: String? {
+        guard mode == .terminal, session.prompt?.question == nil else { return nil }
+        return session.terminalSuggestion(for: draft)
     }
 
     private var placeholder: String {

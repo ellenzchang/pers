@@ -639,14 +639,9 @@ struct DialogueBox: View {
         session.draft = isTerminal ? String(entry.dropFirst()) : entry
     }
 
-    /// Like zsh-autosuggestions: the rest of the newest command, from zsh's history or this tab's, that starts
-    /// with the draft.
     private var suggestion: String? {
-        let draft = session.draft
-        guard inTerminal, historyIndex == nil, !draft.isEmpty else { return nil }
-        let tabCommands = session.inputHistory.filter { $0.hasPrefix(Session.terminalMarker) }.map { String($0.dropFirst()) }
-        let match = (ShellHistory.commands + tabCommands).last { $0.hasPrefix(draft) && $0 != draft }
-        return match.map { String($0.dropFirst(draft.count)) }
+        guard inTerminal, historyIndex == nil else { return nil }
+        return session.terminalSuggestion(for: session.draft)
     }
 
     private var draftFont: Font { isShell ? .system(size: 14, design: .monospaced) : Theme.body }
