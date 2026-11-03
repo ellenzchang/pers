@@ -234,9 +234,9 @@ struct MessageRow: View {
                 if let edits = message.edits { EditDiff(edits: edits).padding(.leading, 18) }
             }
         case .shell:
-            selectable(CodeBlock(language: "shell", code: text)
+            selectable(CodeBlock(language: "shell", code: text, selected: hovered)
                 .padding(.leading, 18)
-                .textSelection(.enabled))
+                .textSelection(.enabled), highlighted: false)
         case .system:
             Text(text)
                 .font(Theme.ui(13, weight: .bold))
@@ -249,10 +249,10 @@ struct MessageRow: View {
         }
     }
 
-    private func selectable<Content: View>(_ content: Content) -> some View {
+    private func selectable<Content: View>(_ content: Content, highlighted: Bool = true) -> some View {
         content
             .padding(.bottom, hovered ? 14 : 0)
-            .background(hovered ? Theme.gold.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 4))
+            .background(hovered && highlighted ? Theme.gold.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 4))
             .overlay(alignment: .bottomTrailing) {
                 if hovered {
                     KeyHints(hints: hints.filter { $0.key != "f" }, highlighted: armedKey)

@@ -555,6 +555,7 @@ final class Session: ObservableObject, Identifiable {
             prompt = PermissionPrompt(requestId: id, tool: request["tool_name"] as? String ?? "tool",
                                       detail: Self.detail(of: input), input: input, suggestions: suggestions,
                                       questions: (input["questions"] as? [[String: Any]] ?? []).map(PermissionPrompt.Question.init))
+            notifyWaiting()
         case "result":
             tokens += Self.tokens(in: event)
             // Subagents on other models are listed too, so prefer the entry for the model this session runs.
@@ -567,6 +568,7 @@ final class Session: ObservableObject, Identifiable {
             if event["is_error"] as? Bool == true {
                 messages.append(ChatMessage(speaker: .system, text: event["result"] as? String ?? "Unknown error"))
             }
+            notifyWaiting()
             return true
         default:
             break
@@ -579,9 +581,12 @@ final class Session: ObservableObject, Identifiable {
         messages.append(message)
         if message.speaker == .claude {
             startTyping(message)
-            hasUnread = true
-            NSApp.requestUserAttention(.criticalRequest)
         }
+    }
+
+    private func notifyWaiting() {
+        hasUnread = true
+        NSApp.requestUserAttention(.criticalRequest)
     }
 
     nonisolated static func message(from block: [String: Any]) -> ChatMessage? {

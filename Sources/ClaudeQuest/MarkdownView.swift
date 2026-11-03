@@ -187,6 +187,7 @@ private struct MarkdownTable: View {
 struct CodeBlock: View {
     var language: String
     var code: String
+    var selected = false
     @ViewState private var copied = false
 
     var body: some View {
@@ -219,7 +220,7 @@ struct CodeBlock: View {
             }
         }
         .background(Theme.codeBackground)
-        .overlay(Rectangle().strokeBorder(Theme.cyan.opacity(0.35), lineWidth: 1.5))
+        .overlay(Rectangle().strokeBorder(selected ? Theme.gold : Theme.cyan.opacity(0.35), lineWidth: selected ? 2 : 1.5))
     }
 }
 
