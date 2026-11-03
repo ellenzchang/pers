@@ -17,6 +17,7 @@ final class Navigator: ObservableObject {
     @Published var diffLine = 0 {
         didSet { disarm() }
     }
+    @Published var commitIndex = 0
     @Published var diffPath: String? {
         didSet { diffLine = 0 }
     }
@@ -74,6 +75,20 @@ final class Navigator: ObservableObject {
         default: return false
         }
         return true
+    }
+
+    func commit(in commits: [Commit]) -> Int {
+        min(commitIndex, max(commits.count - 1, 0))
+    }
+
+    func navigateLog(_ press: KeyPress, in commits: [Commit]) {
+        switch (press.key, press.characters) {
+        case (.downArrow, _), (_, "j"): commitIndex = min(commit(in: commits) + 1, max(commits.count - 1, 0))
+        case (.upArrow, _), (_, "k"): commitIndex = max(commit(in: commits) - 1, 0)
+        case (_, "g"): commitIndex = 0
+        case (_, "G"): commitIndex = max(commits.count - 1, 0)
+        default: break
+        }
     }
 
     func moveFile(by delta: Int, in diff: [FileDiff]) {

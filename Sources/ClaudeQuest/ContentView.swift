@@ -99,7 +99,7 @@ private struct MainPanel: View {
 
     var body: some View {
         if session.showingLog {
-            CommitLog(commits: session.commits)
+            CommitLog(commits: session.commits, navigator: navigator)
         } else if session.showingDiff {
             DiffView(session: session, scroller: scroller, navigator: navigator)
         } else {
@@ -112,24 +112,37 @@ private struct MainPanel: View {
 
 private struct CommitLog: View {
     var commits: [Commit]
+    @ObservedObject var navigator: Navigator
 
     var body: some View {
+        let cursor = navigator.commit(in: commits)
         HStack(spacing: 0) {
             Color.clear.frame(width: SessionOverview.reservedWidth)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(commits) { commit in
-                        HStack(spacing: 12) {
-                            Text(commit.id).foregroundStyle(Theme.gold)
-                            Text(commit.subject).foregroundStyle(Theme.text).lineLimit(1)
-                            Spacer(minLength: 12)
-                            Text("\(commit.author) · \(commit.age)").foregroundStyle(Theme.dim)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(commits.enumerated()), id: \.element.id) { index, commit in
+                            HStack(spacing: 12) {
+                                Text(commit.id).foregroundStyle(Theme.gold)
+                                Text(commit.subject).foregroundStyle(Theme.text).lineLimit(1)
+                                Spacer(minLength: 12)
+                                Text("\(commit.author) · \(commit.age)").foregroundStyle(Theme.dim)
+                            }
+                            .font(Theme.code)
+                            .padding(.vertical, 3)
+                            .background(navigator.active && index == cursor ? Theme.cyan.opacity(0.2) : .clear)
+                            .overlay(alignment: .trailing) {
+                                if navigator.active && index == cursor {
+                                    KeyHints(hints: [("j k", "commit"), ("g G", "top/end")])
+                                        .padding(.horizontal, 10)
+                                        .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
+                                }
+                            }
                         }
-                        .font(Theme.code)
-                        .padding(.vertical, 3)
                     }
+                    .padding(12)
                 }
-                .padding(12)
+                .onChange(of: navigator.commitIndex) { proxy.scrollTo(commits[cursor].id) }
             }
             .defaultScrollAnchor(.top)
             .background(Theme.codeBackground)

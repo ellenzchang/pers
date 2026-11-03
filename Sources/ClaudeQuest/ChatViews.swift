@@ -98,8 +98,7 @@ struct MessageLog: View {
 
     private var navigationHints: [(key: String, action: String)] {
         [("j k", "message"), ("g G", "first/last"), ("f", navigator.forkArmed ? "again to fork from this message" : "fork"),
-         ("y", navigator.yankArmed ? "again to copy this message" : "copy"),
-         ("⌘d", "diff"), ("ESC i", "type")]
+         ("y", navigator.yankArmed ? "again to copy this message" : "copy")]
     }
 
     private func scrollDown(_ proxy: ScrollViewProxy, animated: Bool = true) {
@@ -408,12 +407,12 @@ struct DialogueBox: View {
                             return .handled
                         }
                         .onKeyPress(.rightArrow, phases: .down) { _ in
-                            guard let suggestion else { return .ignored }
+                            guard !navigator.active, let suggestion else { return .ignored }
                             session.draft += suggestion
                             return .handled
                         }
                         .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
-                            guard !choosing else { return .ignored }
+                            guard !choosing, !navigator.active else { return .ignored }
                             let up = press.key == .upArrow
                             if press.modifiers.contains(.shift) {
                                 scroller.page(up ? -1 : 1)
@@ -475,11 +474,8 @@ struct DialogueBox: View {
         let logToggle = ("⌘l", session.showingLog ? "close log" : "log")
         let diffControls = [("⌘B", session.diffBase == .unstaged ? "vs main" : "unstaged"), diffToggle, logToggle]
         let toggles = session.showingDiff ? diffControls : [diffToggle, logToggle]
-        guard navigator.active else {
-            if isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
-            return toggles
-        }
-        return toggles + [("ESC i", "type")]
+        if !navigator.active && isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
+        return toggles
     }
 
     private var menuEntries: [MenuEntry] {
@@ -528,6 +524,10 @@ struct DialogueBox: View {
         }
         if session.showingDiff {
             _ = navigator.navigateDiff(press, in: session)
+            return .handled
+        }
+        if session.showingLog {
+            navigator.navigateLog(press, in: session.commits)
             return .handled
         }
         let messages = session.boxedMessages
