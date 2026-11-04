@@ -104,9 +104,9 @@ private struct MainPanel: View {
     var navigator: Navigator
 
     var body: some View {
-        if session.showingLog {
+        if session.showingLog && session.openedCommit == nil {
             CommitLog(commits: session.commits, navigator: navigator)
-        } else if session.showingDiff {
+        } else if session.showingDiff || session.openedCommit != nil {
             DiffView(session: session, scroller: scroller, navigator: navigator)
         } else {
             MessageLog(session: session, scroller: scroller, navigator: navigator)
@@ -139,7 +139,8 @@ private struct CommitLog: View {
                             .background(navigator.active && index == cursor ? Theme.cyan.opacity(0.2) : .clear)
                             .overlay(alignment: .trailing) {
                                 if navigator.active && index == cursor {
-                                    KeyHints(hints: [("j k", "commit"), ("g G", "top/end")])
+                                    KeyHints(hints: [("j k", "commit"), ("g G", "top/end"), ("⏎", "view"), ("y", navigator.yankArmed ? "again to copy hash" : "copy hash")],
+                                             highlighted: navigator.armedKey)
                                         .padding(.horizontal, 10)
                                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                                 }

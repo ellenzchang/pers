@@ -47,6 +47,7 @@ struct FileDiff: Identifiable, Equatable {
 
 struct Commit: Identifiable, Equatable {
     var id: String
+    var hash: String
     var subject: String
     var author: String
     var age: String
@@ -89,6 +90,14 @@ enum Git {
 
     static func diff(_ base: DiffBase, at directory: String) async -> [FileDiff] {
         let ref = base == .main ? [run(["merge-base", "main", "HEAD"], in: directory)?.trimmed ?? "main"] : []
+        return await diff(against: ref, at: directory)
+    }
+
+    static func diff(of commit: Commit, at directory: String) async -> [FileDiff] {
+        await diff(against: ["\(commit.id)^!"], at: directory)
+    }
+
+    private static func diff(against ref: [String], at directory: String) async -> [FileDiff] {
         let paths = (run(["diff"] + ref + ["--name-only", "-z"], in: directory) ?? "")
             .split(separator: "\0").map(String.init)
         return await withTaskGroup(of: (Int, FileDiff).self) { group in
@@ -105,10 +114,10 @@ enum Git {
     }
 
     static func log(at directory: String) -> [Commit] {
-        let output = run(["log", "-200", "--format=%h%x1f%s%x1f%an%x1f%cr"], in: directory) ?? ""
+        let output = run(["log", "-200", "--format=%h%x1f%H%x1f%s%x1f%an%x1f%cr"], in: directory) ?? ""
         return output.split(separator: "\n").compactMap { line in
             let fields = line.components(separatedBy: "\u{1F}")
-            return fields.count == 4 ? Commit(id: fields[0], subject: fields[1], author: fields[2], age: fields[3]) : nil
+            return fields.count == 5 ? Commit(id: fields[0], hash: fields[1], subject: fields[2], author: fields[3], age: fields[4]) : nil
         }
     }
 

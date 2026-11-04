@@ -17,7 +17,9 @@ final class Navigator: ObservableObject {
     @Published var diffLine = 0 {
         didSet { disarm() }
     }
-    @Published var commitIndex = 0
+    @Published var commitIndex = 0 {
+        didSet { disarm() }
+    }
     @Published var diffPath: String? {
         didSet { diffLine = 0 }
     }
@@ -70,6 +72,7 @@ final class Navigator: ObservableObject {
                 disarm()
                 yankArmed = true
             }
+        case (.delete, _) where session.openedCommit != nil: session.closeCommit()
         case (.return, _):
             if let file, let row { session.quote(row, in: file) }
         default: return false
@@ -81,12 +84,27 @@ final class Navigator: ObservableObject {
         min(commitIndex, max(commits.count - 1, 0))
     }
 
-    func navigateLog(_ press: KeyPress, in commits: [Commit]) {
+    func navigateLog(_ press: KeyPress, in session: Session) {
+        let commits = session.commits
         switch (press.key, press.characters) {
         case (.downArrow, _), (_, "j"): commitIndex = min(commit(in: commits) + 1, max(commits.count - 1, 0))
         case (.upArrow, _), (_, "k"): commitIndex = max(commit(in: commits) - 1, 0)
         case (_, "g"): commitIndex = 0
         case (_, "G"): commitIndex = max(commits.count - 1, 0)
+        case (.return, _):
+            guard commits.indices.contains(commit(in: commits)) else { break }
+            diffPath = nil
+            session.open(commits[commit(in: commits)])
+        case (_, "y") where press.phase == .down:
+            guard commits.indices.contains(commit(in: commits)) else { break }
+            if yankArmed {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(commits[commit(in: commits)].hash, forType: .string)
+                disarm()
+            } else {
+                disarm()
+                yankArmed = true
+            }
         default: break
         }
     }

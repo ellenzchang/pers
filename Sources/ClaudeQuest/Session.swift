@@ -27,6 +27,7 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var diff: [FileDiff] = []
     @Published private(set) var showingLog = false
     @Published private(set) var commits: [Commit] = []
+    @Published private(set) var openedCommit: Commit?
     @Published private(set) var isBusy = false
     @Published private(set) var isRunningShell = false
     @Published private(set) var typingId: UUID?
@@ -120,6 +121,7 @@ final class Session: ObservableObject, Identifiable {
 
     func toggleLog() {
         showingLog.toggle()
+        openedCommit = nil
         guard showingLog else { return }
         showingDiff = false
         let directory = directory
@@ -131,8 +133,23 @@ final class Session: ObservableObject, Identifiable {
 
     func toggleDiff() {
         showingDiff.toggle()
+        openedCommit = nil
         if showingDiff { showingLog = false }
         if showingDiff { loadDiff() }
+    }
+
+    func open(_ commit: Commit) {
+        openedCommit = commit
+        diff = []
+        let directory = directory
+        Task.detached {
+            let diff = await Git.diff(of: commit, at: directory)
+            await MainActor.run { if self.openedCommit == commit { self.diff = diff } }
+        }
+    }
+
+    func closeCommit() {
+        openedCommit = nil
     }
 
     func toggleDiffBase() {

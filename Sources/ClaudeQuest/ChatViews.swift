@@ -377,7 +377,7 @@ struct DialogueBox: View {
                         .foregroundStyle(isShell ? plateColor : Theme.text)
                         .scrollContentBackground(.hidden)
                         .focused($focused)
-                        .background(DraftKeys(session: session, onImagePaste: pasteImages))
+                        .background(DraftKeys(session: session, onImagePaste: pasteImages, onBack: closeCommit))
                         .background(DraftFormatting(text: session.draft))
                         .onKeyPress(phases: [.down, .repeat], action: navigate)
                         .onKeyPress(phases: [.down, .repeat], action: choose)
@@ -478,6 +478,12 @@ struct DialogueBox: View {
         return toggles
     }
 
+    private func closeCommit() -> Bool {
+        guard navigator.active, session.openedCommit != nil else { return false }
+        session.closeCommit()
+        return true
+    }
+
     private var menuEntries: [MenuEntry] {
         var entries: [MenuEntry] = []
         if session.isBusy {
@@ -522,12 +528,12 @@ struct DialogueBox: View {
             navigator.active = false
             return .handled
         }
-        if session.showingDiff {
+        if session.showingDiff || session.openedCommit != nil {
             _ = navigator.navigateDiff(press, in: session)
             return .handled
         }
         if session.showingLog {
-            navigator.navigateLog(press, in: session.commits)
+            navigator.navigateLog(press, in: session)
             return .handled
         }
         let messages = session.boxedMessages
@@ -1120,17 +1126,20 @@ private struct AttachmentThumbnail: View {
 private struct DraftKeys: NSViewRepresentable {
     var session: Session
     var onImagePaste: () -> Void
+    var onBack: () -> Bool
 
     func makeNSView(context: Context) -> NSView { Probe() }
 
     func updateNSView(_ view: NSView, context: Context) {
         (view as? Probe)?.session = session
         (view as? Probe)?.onImagePaste = onImagePaste
+        (view as? Probe)?.onBack = onBack
     }
 
     private final class Probe: NSView {
         var session: Session?
         var onImagePaste: () -> Void = {}
+        var onBack: () -> Bool = { false }
         private var monitor: Any?
 
         deinit { monitor.map(NSEvent.removeMonitor) }
@@ -1150,6 +1159,7 @@ private struct DraftKeys: NSViewRepresentable {
             guard let session, let view = window?.firstResponder as? NSTextView, view.string == session.draft else { return false }
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if modifiers == .command, event.charactersIgnoringModifiers == "v" { return paste(into: view, session) }
+            if event.keyCode == 51, onBack() { return true }
             let cursor = view.selectedRange()
             guard cursor.length == 0 else { return false }
             let placeholders = Session.placeholderPattern.matches(in: view.string, range: NSRange(location: 0, length: (view.string as NSString).length)).map(\.range)
