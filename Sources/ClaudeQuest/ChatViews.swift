@@ -6,6 +6,18 @@ final class LogScroller: ObservableObject {
     @Published var position = ScrollPosition(edge: .bottom)
     // Not published: it changes on every scroll frame and only matters when paging.
     var geometry: ScrollGeometry?
+    var followsBottom = true
+
+    func track(_ new: ScrollGeometry) {
+        let old = geometry
+        geometry = new
+        // Only an upward move counts as leaving the bottom, since growing content also pushes the bottom away.
+        if new.visibleRect.maxY >= new.contentSize.height - 48 {
+            followsBottom = true
+        } else if let old, new.contentOffset.y < old.contentOffset.y - 1 {
+            followsBottom = false
+        }
+    }
 
     func page(_ direction: CGFloat, horizontal: Bool = false) {
         guard let geometry else { return }
@@ -47,10 +59,17 @@ struct MessageLog: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollPosition($scroller.position)
-            .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { scroller.geometry = $1 }
-            .onChange(of: session.messages.count) { if !navigator.active { scrollDown(proxy) } }
-            .onChange(of: session.revealed) { if !navigator.active { scrollDown(proxy, animated: false) } }
-            .onChange(of: session.boxedMessages.count) { if navigator.active { navigator.newMessage = true } }
+            .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) {
+                scroller.track($1)
+                if scroller.followsBottom && !navigator.active { navigator.newMessage = false }
+            }
+            .onChange(of: session.messages.count) {
+                let userInitiated = session.messages.last.map { [.user, .shell].contains($0.speaker) } ?? false
+                if !navigator.active && (userInitiated || scroller.followsBottom) { scrollDown(proxy) }
+            }
+            .onChange(of: session.revealed) { if !navigator.active && scroller.followsBottom { scrollDown(proxy, animated: false) } }
+            .onChange(of: session.messages.last?.text) { if !navigator.active && scroller.followsBottom { scrollDown(proxy, animated: false) } }
+            .onChange(of: session.boxedMessages.count) { if navigator.active || !scroller.followsBottom { navigator.newMessage = true } }
             .onChange(of: navigator.messageId) {
                 if navigator.message(in: session.boxedMessages)?.id == session.boxedMessages.last?.id { navigator.newMessage = false }
                 centerSelection(proxy)
@@ -66,11 +85,11 @@ struct MessageLog: View {
             .onAppear { scrollDown(proxy, animated: false) }
         }
         .overlay(alignment: .bottom) {
-            if navigator.active && navigator.newMessage {
-                Button { navigator.jumpToLatest(in: session.boxedMessages) } label: {
+            if navigator.newMessage {
+                Button(action: showLatest) {
                     HStack(spacing: 8) {
                         Text("NEW MESSAGE RECEIVED").foregroundStyle(Theme.navy)
-                        KeyHints(hints: [("G", "scroll down to see latest")])
+                        if navigator.active { KeyHints(hints: [("G", "scroll down to see latest")]) }
                     }
                     .font(Theme.ui(13, weight: .black))
                     .padding(.horizontal, 18)
@@ -92,6 +111,14 @@ struct MessageLog: View {
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.6), value: session.prompt?.step)
+    }
+
+    private func showLatest() {
+        if navigator.active {
+            navigator.jumpToLatest(in: session.boxedMessages)
+        } else {
+            withAnimation(.easeOut(duration: 0.2)) { scroller.position.scrollTo(edge: .bottom) }
+        }
     }
 
     private func centerSelection(_ proxy: ScrollViewProxy) {
