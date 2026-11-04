@@ -123,7 +123,7 @@ struct MessageLog: View {
 
     private func centerSelection(_ proxy: ScrollViewProxy) {
         guard let id = navigator.message(in: session.boxedMessages)?.id else { return }
-        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) }
+        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .top) }
     }
 
     private var navigationHints: [(key: String, action: String)] {
