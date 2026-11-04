@@ -61,6 +61,7 @@ struct MapView: View {
         .font(Theme.body)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+        .activeShift(active, offset: 0)
     }
 
     private func handle(_ press: KeyPress) -> KeyPress.Result {

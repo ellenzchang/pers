@@ -335,6 +335,7 @@ struct ActionPanel: View {
     private func scopeTab(_ title: String, active: Bool, select: @escaping () -> Void) -> some View {
         Button(action: select) { Text(title).foregroundStyle(active ? Theme.gold : Theme.dim) }
             .buttonStyle(.plain)
+            .activeShift(active, offset: 0)
     }
 
     private func marker(active: Bool, text: String, color: Color) -> some View {
@@ -347,6 +348,7 @@ struct ActionPanel: View {
         .font(Theme.body)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
+        .activeShift(active, offset: 0)
     }
 
     private var hints: [(key: String, action: String)] {
@@ -459,6 +461,7 @@ private struct ActionRow: View {
             }
             .font(Theme.body)
             .contentShape(Rectangle())
+            .activeShift(selected, offset: 0)
             .onTapGesture {
                 select()
                 if run != nil { toggle() }

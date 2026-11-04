@@ -447,10 +447,9 @@ private struct RequestRow: View {
         .foregroundStyle(highlighted ? Theme.navy : Theme.ice)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Slant(amount: 8).fill(highlighted ? Theme.ice : .clear))
+        .background(ActiveBackdrop(active: highlighted))
         .contentShape(Rectangle())
-        .offset(x: highlighted ? 6 : 0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: highlighted)
+        .activeShift(highlighted)
         .onHover { hovered = $0 }
         .onTapGesture(perform: select)
     }

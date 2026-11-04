@@ -19,7 +19,13 @@ struct ContentView: View {
             }
         }
         .background {
-            if Theme.isQuest { MoonlitBackground() } else { Theme.deep }
+            if Theme.isQuest {
+                MoonlitBackground()
+            } else if Theme.isPhantom {
+                PhantomBackground()
+            } else {
+                Theme.deep
+            }
         }
         .ignoresSafeArea(edges: .top)
         .preferredColorScheme(.dark)

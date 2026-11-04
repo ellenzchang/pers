@@ -68,10 +68,9 @@ private struct OverviewRow: View {
         .foregroundStyle(highlighted ? Theme.navy : session.isBusy ? Theme.aqua : Theme.ice)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Slant(amount: 8).fill(highlighted ? Theme.ice : .clear))
+        .background(ActiveBackdrop(active: highlighted))
         .contentShape(Rectangle())
-        .offset(x: highlighted ? 6 : 0)
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: highlighted)
+        .activeShift(highlighted)
         .onHover { hovered = $0 }
         .task(id: "\(session.sessionId ?? "")\(session.isBusy)") {
             guard let sessionId = session.sessionId else { tabTitle = nil; return }

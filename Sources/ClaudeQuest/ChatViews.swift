@@ -120,7 +120,7 @@ private struct EmptyQuest: View {
                 .padding(.vertical, 2)
                 .background(Slant(amount: 10).fill(Theme.cyan))
         }
-        .rotationEffect(.degrees(Theme.isQuest ? -4 : 0))
+        .rotationEffect(.degrees(Theme.isStylized ? -4 : 0))
         .frame(maxWidth: .infinity)
         .padding(.top, 70)
     }
@@ -190,7 +190,7 @@ struct MessageRow: View {
         case .user:
             HStack {
                 Spacer(minLength: 100)
-                bubble(name: "YOU", plate: forking ? Theme.gold : Theme.cyan, light: Theme.isQuest, alignment: .trailing) {
+                bubble(name: "YOU", plate: forking ? Theme.gold : Theme.cyan, light: Theme.isStylized, alignment: .trailing) {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(Array((message.images ?? []).enumerated()), id: \.offset) { _, data in
                             if let image = NSImage(data: data) {
@@ -205,7 +205,7 @@ struct MessageRow: View {
                         if !text.isEmpty {
                             Text(text)
                                 .font(Theme.body)
-                                .foregroundStyle(Theme.isQuest ? Theme.navy : Theme.text)
+                                .foregroundStyle(Theme.isStylized ? Theme.navy : Theme.text)
                                 .textSelection(.enabled)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -299,7 +299,7 @@ struct MessageRow: View {
             content()
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 6)
-                .panel(light: light, accent: forking || (hovered && !Theme.isQuest) ? Theme.gold : Theme.cyan, padding: 18, morphing: hovered, selected: hovered,
+                .panel(light: light, accent: forking || (hovered && !Theme.isStylized) ? Theme.gold : Theme.cyan, padding: 18, morphing: hovered, selected: hovered,
                        colors: forking ? [Theme.amberTop, Theme.amberBottom] : nil)
                 .overlay(alignment: .bottomTrailing) {
                     KeyHints(hints: hints, highlighted: armedKey)
@@ -972,7 +972,7 @@ private struct PermissionBox: View {
             }
         }
         .frame(width: 300)
-        .animation(Theme.isTerminal ? nil : .easeInOut(duration: Theme.isQuest ? 0.35 : 0.15), value: navigator.active)
+        .animation(Theme.isTerminal ? nil : .easeInOut(duration: Theme.isStylized ? 0.35 : 0.15), value: navigator.active)
     }
 
     private var accent: Color { navigator.active ? Theme.cyan : Theme.gold }
@@ -1068,13 +1068,13 @@ private struct MenuItem: View {
                 .font(Theme.display(26))
                 .foregroundStyle(isHovered ? Theme.navy : color)
                 .padding(.horizontal, 14)
-                .background(Slant(amount: 10).fill(isHovered ? Theme.ice : .clear))
+                .background(ActiveBackdrop(active: isHovered, amount: 10))
                 .shadow(color: Theme.cyan.opacity(isHovered ? 0 : 0.5), radius: 0, x: 2, y: 2)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .offset(x: CGFloat(index) * 10 + (isHovered ? 8 : 0))
-        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: isHovered)
+        .activeShift(isHovered, offset: 8)
+        .offset(x: CGFloat(index) * 10)
         .onHover { hovered = $0 }
         .modifier(OptionalShortcut(key: shortcut))
     }
