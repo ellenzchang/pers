@@ -325,7 +325,7 @@ struct DialogueBox: View {
     @ViewState private var draftHeight: CGFloat = 0
     @ViewState private var historyIndex: Int?
     @ViewState private var stashedDraft = ""
-    @ViewState private var isTerminal = false
+    @ViewState private var mode = ClaudeBar.Mode.claude
     @ViewState private var exitArmed = false
     @AppStorage(Self.showSpriteKey) private var showSprite = false
 
@@ -397,8 +397,13 @@ struct DialogueBox: View {
                             return .handled
                         }
                         .onKeyPress(.tab, phases: .down) { _ in
+                            if navigator.active {
+                                navigator.active = false
+                                mode = .terminal
+                                return .handled
+                            }
                             guard session.draft.isEmpty, !isAnswering else { return .ignored }
-                            isTerminal.toggle()
+                            mode = mode == .claude ? .terminal : .claude
                             return .handled
                         }
                         .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { press in
@@ -582,7 +587,7 @@ struct DialogueBox: View {
 
     private var placeholder: String {
         if exitArmed { return "Press ⌃c again to exit" }
-        if navigator.active { return "Press i to speak to Claude" }
+        if navigator.active { return "Press i or escape to type (⇥ terminal)" }
         if inTerminal { return "Run a command in the terminal…  (⇥ back to Claude)" }
         return "Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell · ⇥ terminal · esc navigate)"
     }
@@ -625,12 +630,12 @@ struct DialogueBox: View {
 
     /// The draft as it would be sent, so a recalled terminal command comes back in terminal mode.
     private var shownEntry: String {
-        (isTerminal ? Session.terminalMarker : "") + session.expandedDraft
+        (mode == .terminal ? Session.terminalMarker : "") + session.expandedDraft
     }
 
     private func show(_ entry: String) {
-        isTerminal = entry.hasPrefix(Session.terminalMarker)
-        session.draft = isTerminal ? String(entry.dropFirst()) : entry
+        mode = entry.hasPrefix(Session.terminalMarker) ? .terminal : .claude
+        session.draft = mode == .terminal ? String(entry.dropFirst()) : entry
     }
 
     private var suggestion: String? {
@@ -640,7 +645,7 @@ struct DialogueBox: View {
 
     private var draftFont: Font { isShell ? .system(size: 14, design: .monospaced) : Theme.body }
 
-    private var inTerminal: Bool { isTerminal && !isAnswering }
+    private var inTerminal: Bool { mode == .terminal && !isAnswering }
     private var isShell: Bool { inTerminal || session.draft.hasPrefix("!") }
     private var isAnswering: Bool { session.prompt?.question != nil }
 
