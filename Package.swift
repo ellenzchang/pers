@@ -4,7 +4,10 @@ import PackageDescription
 let package = Package(
     name: "ClaudeQuest",
     platforms: [.macOS("15.0")],
+    dependencies: [
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.2.0")
+    ],
     targets: [
-        .executableTarget(name: "ClaudeQuest", path: "Sources/ClaudeQuest")
+        .executableTarget(name: "ClaudeQuest", dependencies: ["SwiftTerm"], path: "Sources/ClaudeQuest")
     ]
 )

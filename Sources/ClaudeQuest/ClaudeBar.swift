@@ -163,6 +163,11 @@ struct ClaudeBar: View {
     }
 
     private func send() {
+        if session.isRunningShell && mode == .terminal {
+            session.sendInput(draft)
+            draft = ""
+            return
+        }
         let text = draft.trimmed
         guard !text.isEmpty else { return }
         if session.prompt?.question != nil {

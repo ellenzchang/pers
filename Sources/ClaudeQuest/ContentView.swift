@@ -104,7 +104,45 @@ private struct MainPanel: View {
     var navigator: Navigator
 
     var body: some View {
-        if session.showingLog && session.openedCommit == nil {
+        content.background {
+            if session.terminal != nil {
+                Button("", action: toggleTerminal)
+                    .keyboardShortcut(".", modifiers: .command)
+                    .hidden()
+            }
+        }
+    }
+
+    /// Leaves the terminal only from inside it; from the chat input it goes in, even when the terminal is already open.
+    private func toggleTerminal() {
+        guard let terminal = session.terminal else { return }
+        if !session.showingTerminal {
+            session.showingTerminal = true
+        } else if terminal.isFocused {
+            session.showingTerminal = false
+        } else {
+            terminal.focus()
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if session.showingTerminal, let terminal = session.terminal {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 10) {
+                    Text("TERMINAL").font(Theme.ui(12, weight: .black)).foregroundStyle(Theme.navy)
+                        .padding(.horizontal, 10)
+                        .background(Slant(amount: 6).fill(Theme.green))
+                    Text("● " + session.terminalStatus.uppercased()).font(Theme.ui(10, weight: .bold)).foregroundStyle(Theme.green)
+                    Spacer()
+                    KeyHints(hints: [("⌃c", "interrupt"), ("⌘.", "back to chat")])
+                }
+                .padding(8)
+                TerminalPane(terminal: terminal)
+            }
+            .overlay(Rectangle().strokeBorder(Theme.green, lineWidth: 1.5))
+            .padding(.leading, SessionOverview.reservedWidth)
+        } else if session.showingLog && session.openedCommit == nil {
             CommitLog(commits: session.commits, navigator: navigator)
         } else if session.showingDiff || session.openedCommit != nil {
             DiffView(session: session, scroller: scroller, navigator: navigator)

@@ -33,6 +33,18 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var typingId: UUID?
     @Published private(set) var revealed = 0
     @Published private(set) var prompt: PermissionPrompt?
+    /// The running terminal command, and the chat message that shows it.
+    @Published private(set) var terminal: ShellTerminal? {
+        didSet {
+            guard terminal == nil else { return }
+            showingTerminal = false
+            terminalMode = .init()
+        }
+    }
+    @Published private(set) var terminalMode = ShellTerminal.Mode()
+    private(set) var terminalMessageId: UUID?
+    @Published var showingTerminal = false
+    private var interrupted = false
     @Published private(set) var resets = 0
     @Published var hasUnread = false
     @Published var unseenAbove = false
@@ -220,6 +232,10 @@ final class Session: ObservableObject, Identifiable {
     }
 
     func stop() {
+        if let terminal {
+            interrupted = true
+            terminal.stop()
+        }
         process?.terminate()
         resolveFix("Cancel")
     }
@@ -363,41 +379,30 @@ final class Session: ObservableObject, Identifiable {
         return process
     }
 
-    /// Mirrors the CLI's `!` mode, which `claude -p` doesn't support. The trailing marker reports the
+    /// Mirrors the CLI's `!` mode, which `claude -p` doesn't support. The trailing OSC 7 reports the
     /// shell's final directory so a `cd` carries over to the tab. Interactive (`-i`) so .zshrc's aliases,
-    /// functions and PATH are available, like in the user's own terminal.
+    /// functions and PATH are available, like in the user's own terminal. Pagers are off since the chat
+    /// can't scroll them.
     private func runShell(_ command: String) {
-        let process = Self.shellProcess("\(command)\nprintf '\\036%s' \"$PWD\"", in: directory)
-        let out = Pipe()
-        process.standardOutput = out
-        process.standardError = out
-
-        do {
-            try process.run()
-        } catch {
-            finish(error: error.localizedDescription)
-            return
+        let terminal = ShellTerminal(script: "export PAGER=cat GIT_PAGER=cat\n\(command)\nprintf '\\e]7;%s\\a' \"$PWD\"", in: directory)
+        self.terminal = terminal
+        interrupted = false
+        // Added before any output, so a quiet command still shows that it's running.
+        let message = ChatMessage(speaker: .shell, text: "")
+        terminalMessageId = message.id
+        messages.append(message)
+        terminal.onOutput = { [weak self] output, mode in
+            guard let self else { return }
+            // Programs that read keys can't be used from the chat, so open the terminal for them, once, so ⌘. can still leave.
+            if mode.interactive && !terminalMode.interactive { showingTerminal = true }
+            terminalMode = mode
+            if let index = messages.firstIndex(where: { $0.id == message.id }) { messages[index].text = output }
         }
-        self.process = process
-
-        Task {
-            var data = Data()
-            var messageId: UUID?
-            for await chunk in Self.chunks(of: out) {
-                data.append(chunk)
-                let shown = Self.shellOutput(data).output.trimmed
-                guard !shown.isEmpty else { continue }
-                if let id = messageId, let index = messages.firstIndex(where: { $0.id == id }) {
-                    messages[index].text = shown
-                } else {
-                    let message = ChatMessage(speaker: .shell, text: shown)
-                    messageId = message.id
-                    messages.append(message)
-                }
-            }
-            process.waitUntilExit()
-            if let cwd = Self.shellOutput(data).cwd, cwd != directory { directory = cwd }
-            finish(error: process.terminationReason == .uncaughtSignal ? "Interrupted." : nil)
+        terminal.onExit = { [weak self] exitCode in
+            guard let self else { return }
+            messages.removeAll { $0.id == message.id && $0.text.isEmpty }
+            if let cwd = terminal.directory, cwd != directory { directory = cwd }
+            finish(error: interrupted || exitCode == nil ? "Interrupted." : nil)
         }
     }
 
@@ -470,12 +475,21 @@ final class Session: ObservableObject, Identifiable {
         if answer != "Cancel" { send(Self.terminalMarker + (answer == "Run" ? fix : answer)) }
     }
 
-    /// Splits off the trailing directory report so it never shows, even while the output is still streaming.
-    private static func shellOutput(_ data: Data) -> (output: String, cwd: String?) {
-        let text = String(decoding: data, as: UTF8.self)
-        guard let marker = text.lastIndex(of: "\u{1E}") else { return (text, nil) }
-        return (String(text[..<marker]), String(text[text.index(after: marker)...]))
+    /// Sends a line to the running terminal command, such as a passphrase or a confirmation.
+    func sendInput(_ text: String) {
+        terminal?.send(terminalMode.wantsKeys && !text.isEmpty ? text : text + "\r")
     }
+
+    /// Shown on the running command's message.
+    var terminalStatus: String {
+        if terminalMode.fullScreen { return "full screen" }
+        if terminalMode.wantsKeys { return "waiting for keys" }
+        if terminalMode.hidesInput { return "waiting for password" }
+        return "running"
+    }
+
+    /// The running command reads a line without echo, like a password, so the answer shouldn't show on screen.
+    var awaitingSecret: Bool { terminalMode.hidesInput }
 
     /// Finder-launched apps get a minimal PATH, and login shells skip .zshrc where installers usually add
     /// `~/.local/bin`, so check the common install locations before asking an interactive shell.
@@ -547,6 +561,8 @@ final class Session: ObservableObject, Identifiable {
         input = nil
         prompt = nil
         process = nil
+        terminal = nil
+        terminalMessageId = nil
         isBusy = false
         isRunningShell = false
         refreshGit()

@@ -31,8 +31,11 @@ struct MessageLog: View {
                     if session.messages.isEmpty { EmptyQuest() }
                     ForEach(session.messages) { message in
                         let hovered = navigator.active && navigator.message(in: session.boxedMessages)?.id == message.id
+                        let running = message.id == session.terminalMessageId
                         MessageRow(message: message, text: session.visibleText(of: message),
-                                   hovered: hovered, armedKey: hovered ? navigator.armedKey : nil, hints: hovered ? navigationHints : [])
+                                   hovered: hovered, armedKey: hovered ? navigator.armedKey : nil,
+                                   hints: hovered ? navigationHints + (running ? [("⏎", "open terminal")] : []) : [],
+                                   status: running ? session.terminalStatus + " · ⌘. to open" : nil)
                             .id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -178,6 +181,8 @@ struct MessageRow: View {
     var hovered = false
     var armedKey: String?
     var hints: [(key: String, action: String)] = []
+    /// What a running terminal command is doing.
+    var status: String?
 
     private var forking: Bool { armedKey != nil }
 
@@ -233,7 +238,7 @@ struct MessageRow: View {
                 if let edits = message.edits { EditDiff(edits: edits).padding(.leading, 18) }
             }
         case .shell:
-            selectable(CodeBlock(language: "shell", code: text, selected: hovered)
+            selectable(CodeBlock(language: "shell", code: text, selected: hovered, status: status)
                 .padding(.leading, 18)
                 .textSelection(.enabled), highlighted: false)
         case .system:
@@ -372,66 +377,77 @@ struct DialogueBox: View {
                             .padding(.leading, 5)
                             .allowsHitTesting(false)
                     }
-                    TextEditor(text: $session.draft)
-                        .font(draftFont)
-                        .foregroundStyle(isShell ? plateColor : Theme.text)
-                        .scrollContentBackground(.hidden)
-                        .focused($focused)
-                        .background(DraftKeys(session: session, onImagePaste: pasteImages, onBack: closeCommit))
-                        .background(DraftFormatting(text: session.draft))
-                        .onKeyPress(phases: [.down, .repeat], action: navigate)
-                        .onKeyPress(phases: [.down, .repeat], action: choose)
-                        .onKeyPress(.return, phases: .down) { press in
-                            if press.modifiers.contains(.shift) || choosing || navigator.active { return .ignored }
-                            send()
-                            return .handled
-                        }
-                        .onKeyPress(phases: .down) { press in
-                            guard press.modifiers == .control else { return .ignored }
-                            switch (press.key, press.characters) {
-                            case ("c", _), (_, "\u{03}"): interrupt()
-                            case ("r", _), (_, "\u{12}"): session.reset()
-                            case ("l", _), (_, "\u{0C}"): if !session.isBusy { loading = true }
-                            default: return .ignored
-                            }
-                            return .handled
-                        }
-                        .onKeyPress(.tab, phases: .down) { _ in
-                            if navigator.active {
-                                navigator.active = false
-                                mode = .terminal
+                    if session.awaitingSecret && inTerminal {
+                        SecureField("", text: $session.draft)
+                            .textFieldStyle(.plain)
+                            .font(draftFont)
+                            .foregroundStyle(plateColor)
+                            .padding(.leading, 5)
+                            .focused($focused)
+                            .onSubmit(send)
+                            .onAppear { focused = true }
+                    } else {
+                        TextEditor(text: $session.draft)
+                            .font(draftFont)
+                            .foregroundStyle(isShell ? plateColor : Theme.text)
+                            .scrollContentBackground(.hidden)
+                            .focused($focused)
+                            .background(DraftKeys(session: session, onImagePaste: pasteImages, onBack: closeCommit))
+                            .background(DraftFormatting(text: session.draft))
+                            .onKeyPress(phases: [.down, .repeat], action: navigate)
+                            .onKeyPress(phases: [.down, .repeat], action: choose)
+                            .onKeyPress(.return, phases: .down) { press in
+                                if press.modifiers.contains(.shift) || choosing || navigator.active { return .ignored }
+                                send()
                                 return .handled
                             }
-                            guard session.draft.isEmpty, !isAnswering else { return .ignored }
-                            mode = mode == .claude ? .terminal : .claude
-                            return .handled
-                        }
-                        .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { press in
-                            guard press.modifiers.contains(.shift) else { return .ignored }
-                            scroller.page(press.key == .leftArrow ? -1 : 1, horizontal: true)
-                            return .handled
-                        }
-                        .onKeyPress(.rightArrow, phases: .down) { _ in
-                            guard !navigator.active, let suggestion else { return .ignored }
-                            session.draft += suggestion
-                            return .handled
-                        }
-                        .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
-                            guard !choosing, !navigator.active else { return .ignored }
-                            let up = press.key == .upArrow
-                            if press.modifiers.contains(.shift) {
-                                scroller.page(up ? -1 : 1)
+                            .onKeyPress(phases: .down) { press in
+                                guard press.modifiers == .control else { return .ignored }
+                                switch (press.key, press.characters) {
+                                case ("c", _), (_, "\u{03}"): interrupt()
+                                case ("r", _), (_, "\u{12}"): session.reset()
+                                case ("l", _), (_, "\u{0C}"): if !session.isBusy { loading = true }
+                                default: return .ignored
+                                }
                                 return .handled
                             }
-                            return up ? olderHistory() : newerHistory()
-                        }
-                        .onChange(of: session.prompt?.step) {
-                            navigator.promptIndex = 0
-                            navigator.typingAnswer = false
-                        }
-                        .onChange(of: session.draft) {
-                            if let historyIndex, shownEntry != session.inputHistory[historyIndex] { self.historyIndex = nil }
-                        }
+                            .onKeyPress(.tab, phases: .down) { _ in
+                                if navigator.active {
+                                    navigator.active = false
+                                    mode = .terminal
+                                    return .handled
+                                }
+                                guard session.draft.isEmpty, !isAnswering else { return .ignored }
+                                mode = mode == .claude ? .terminal : .claude
+                                return .handled
+                            }
+                            .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { press in
+                                guard press.modifiers.contains(.shift) else { return .ignored }
+                                scroller.page(press.key == .leftArrow ? -1 : 1, horizontal: true)
+                                return .handled
+                            }
+                            .onKeyPress(.rightArrow, phases: .down) { _ in
+                                guard !navigator.active, let suggestion else { return .ignored }
+                                session.draft += suggestion
+                                return .handled
+                            }
+                            .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
+                                guard !choosing, !navigator.active else { return .ignored }
+                                let up = press.key == .upArrow
+                                if press.modifiers.contains(.shift) {
+                                    scroller.page(up ? -1 : 1)
+                                    return .handled
+                                }
+                                return up ? olderHistory() : newerHistory()
+                            }
+                            .onChange(of: session.prompt?.step) {
+                                navigator.promptIndex = 0
+                                navigator.typingAnswer = false
+                            }
+                            .onChange(of: session.draft) {
+                                if let historyIndex, shownEntry != session.inputHistory[historyIndex] { self.historyIndex = nil }
+                            }
+                    }
                 }
                 .background(alignment: .topLeading) {
                     Text(session.draft + " ")
@@ -467,6 +483,8 @@ struct DialogueBox: View {
         .background(LinearGradient(colors: [.clear, Theme.deep.opacity(0.7)], startPoint: .top, endPoint: .bottom))
         .onAppear { focused = true }
         .onChange(of: store.showingActions) { if !store.showingActions { focused = true } }
+        // A focused input would take the keyboard back from the terminal.
+        .onChange(of: session.showingTerminal) { focused = !session.showingTerminal }
         .onTapGesture { if session.isTalking { session.skipTyping() } }
         .sheet(isPresented: $loading) {
             LoadData(session: session)
@@ -478,7 +496,8 @@ struct DialogueBox: View {
         let diffToggle = ("⌘d", session.showingDiff ? "close diff" : "diff")
         let logToggle = ("⌘l", session.showingLog ? "close log" : "log")
         let diffControls = [("⌘B", session.diffBase == .unstaged ? "vs main" : "unstaged"), diffToggle, logToggle]
-        let toggles = session.showingDiff ? diffControls : [diffToggle, logToggle]
+        let terminal = session.terminal == nil ? [] : [("⌘.", session.showingTerminal ? "type in terminal" : "terminal"), ("⌃c", "stop")]
+        let toggles = terminal + (session.showingDiff ? diffControls : [diffToggle, logToggle])
         if !navigator.active && isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
         return toggles
     }
@@ -492,7 +511,9 @@ struct DialogueBox: View {
     private var menuEntries: [MenuEntry] {
         var entries: [MenuEntry] = []
         if session.isBusy {
-            entries.append(MenuEntry(title: "STOP", index: session.prompt?.question != nil ? 1 : 0, color: Theme.red, shortcut: ".", action: session.stop))
+            // ⌘. opens a running terminal command instead; ⌃c still stops it.
+            entries.append(MenuEntry(title: "STOP", index: session.prompt?.question != nil ? 1 : 0, color: Theme.red,
+                                     shortcut: session.terminal == nil ? "." : nil, action: session.stop))
         }
         if session.isTalking {
             entries.append(MenuEntry(title: "SKIP", index: 1, action: session.skipTyping))
@@ -547,6 +568,10 @@ struct DialogueBox: View {
         case (.upArrow, _), (_, "k"): navigator.moveMessage(by: -1, in: messages)
         case (_, "g"): navigator.setMessage(0, in: messages)
         case (_, "G"): navigator.jumpToLatest(in: messages)
+        case (.return, _):
+            guard let message = navigator.message(in: messages), message.id == session.terminalMessageId else { break }
+            navigator.active = false
+            session.showingTerminal = true
         case (_, "f") where press.phase == .down:
             guard let message = navigator.message(in: messages), !session.isTerminal(message) else { break }
             if navigator.forkArmed {
@@ -587,7 +612,11 @@ struct DialogueBox: View {
 
     private var placeholder: String {
         if exitArmed { return "Press ⌃c again to exit" }
+        if session.showingTerminal { return "The terminal is open above  (⌘. to type in it)" }
         if navigator.active { return "Press i or escape to type (⇥ terminal)" }
+        if session.awaitingSecret && inTerminal { return "Type the password…  (⏎ send · ⌃c stop)" }
+        if session.isRunningShell && inTerminal { return "Type input for the running command…  (⏎ send · ⌃c stop · ⌘. open terminal)" }
+        if session.isRunningShell { return "A command is running…  (⌘. open terminal · ⇥ to type into it · ⌃c stop)" }
         if inTerminal { return "Run a command in the terminal…  (⇥ back to Claude)" }
         return "Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell · ⇥ terminal · esc navigate)"
     }
@@ -691,6 +720,11 @@ struct DialogueBox: View {
     }
 
     private func send() {
+        if session.isRunningShell && inTerminal {
+            session.sendInput(session.expandedDraft)
+            session.draft = ""
+            return
+        }
         guard !session.draft.trimmed.isEmpty || (!session.images.isEmpty && !inTerminal) else { return }
         if isAnswering {
             guard !session.draft.trimmed.isEmpty else { return }
@@ -1203,7 +1237,7 @@ private struct DraftKeys: NSViewRepresentable {
     }
 }
 
-/// SwiftUI's TextEditor has no switch for smart quotes, so reach the NSTextViews in the window.
+/// SwiftUI's TextEditor has no switch for smart quotes and dashes, so reach the NSTextViews in the window.
 private struct DraftFormatting: NSViewRepresentable {
     // Unused, but changing it makes SwiftUI call updateNSView when the draft is set programmatically.
     var text: String
@@ -1235,6 +1269,7 @@ private struct DraftFormatting: NSViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 self?.window?.contentView?.textViews.forEach {
                     $0.isAutomaticQuoteSubstitutionEnabled = false
+                    $0.isAutomaticDashSubstitutionEnabled = false
                     self?.format($0)
                 }
             }

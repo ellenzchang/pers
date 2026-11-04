@@ -116,7 +116,7 @@ final class ActionRun: ObservableObject, Identifiable {
         if state == .running, !marker.isEmpty, output.contains(marker) { state = .ready }
     }
 
-    private static func descendants(of pid: pid_t) -> [pid_t] {
+    static func descendants(of pid: pid_t) -> [pid_t] {
         let pgrep = Process()
         pgrep.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
         pgrep.arguments = ["-P", String(pid)]

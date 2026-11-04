@@ -188,6 +188,7 @@ struct CodeBlock: View {
     var language: String
     var code: String
     var selected = false
+    var status: String?
     @ViewState private var copied = false
 
     var body: some View {
@@ -196,6 +197,11 @@ struct CodeBlock: View {
                 Text(language.isEmpty ? "CODE" : language.uppercased())
                     .font(Theme.ui(10))
                     .foregroundStyle(Theme.dim)
+                if let status {
+                    Text("● " + status.uppercased())
+                        .font(Theme.ui(10, weight: .bold))
+                        .foregroundStyle(Theme.green)
+                }
                 Spacer()
                 Button(copied ? "COPIED!" : "COPY") {
                     NSPasteboard.general.clearContents()
