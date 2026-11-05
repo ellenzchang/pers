@@ -121,21 +121,37 @@ final class ShellTerminal: NSObject, LocalProcessTerminalViewDelegate {
 struct TerminalPane: NSViewRepresentable {
     var terminal: ShellTerminal
 
-    func makeNSView(context: Context) -> NSView {
-        let container = NSView()
+    func makeNSView(context: Context) -> Container {
+        let container = Container()
         attach(to: container)
         return container
     }
 
-    func updateNSView(_ container: NSView, context: Context) {
+    func updateNSView(_ container: Container, context: Context) {
         if terminal.view.superview !== container { attach(to: container) }
     }
 
-    private func attach(to container: NSView) {
+    private func attach(to container: Container) {
         container.subviews.forEach { $0.removeFromSuperview() }
+        container.terminal = terminal
         terminal.view.frame = container.bounds
         terminal.view.autoresizingMask = [.width, .height]
         container.addSubview(terminal.view)
-        DispatchQueue.main.async { terminal.focus() }
+        container.focusTerminal()
+    }
+
+    /// A freshly opened pane isn't in the window yet, so focusing it has to wait until it is.
+    final class Container: NSView {
+        var terminal: ShellTerminal?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            focusTerminal()
+        }
+
+        func focusTerminal() {
+            guard window != nil else { return }
+            DispatchQueue.main.async { [terminal] in terminal?.focus() }
+        }
     }
 }
