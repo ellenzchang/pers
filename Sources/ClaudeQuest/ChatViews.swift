@@ -41,8 +41,9 @@ struct MessageLog: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
                     if session.messages.isEmpty { EmptyQuest() }
+                    let selectedId = navigator.active ? navigator.message(in: session.boxedMessages)?.id : nil
                     ForEach(session.messages) { message in
-                        let hovered = navigator.active && navigator.message(in: session.boxedMessages)?.id == message.id
+                        let hovered = message.id == selectedId
                         let running = message.id == session.terminalMessageId
                         MessageRow(message: message, text: session.visibleText(of: message),
                                    hovered: hovered, armedKey: hovered ? navigator.armedKey : nil,
@@ -74,15 +75,12 @@ struct MessageLog: View {
                 if navigator.message(in: session.boxedMessages)?.id == session.boxedMessages.last?.id { navigator.newMessage = false }
                 centerSelection(proxy)
             }
-            .onChange(of: navigator.active) {
-                guard navigator.active else { return }
-                // The dialogue box shrinks as navigation starts, so centre once the log has its final height.
-                Task {
-                    try? await Task.sleep(for: .milliseconds(200))
-                    centerSelection(proxy)
-                }
+            .onChange(of: navigator.active) { if navigator.active { centerSoon(proxy) } }
+            .onAppear {
+                scrollDown(proxy, animated: false)
+                // Opened on a message picked from the overview.
+                if navigator.active { centerSoon(proxy) }
             }
-            .onAppear { scrollDown(proxy, animated: false) }
         }
         .overlay(alignment: .bottom) {
             if navigator.newMessage {
@@ -118,6 +116,14 @@ struct MessageLog: View {
             navigator.jumpToLatest(in: session.boxedMessages)
         } else {
             withAnimation(.easeOut(duration: 0.2)) { scroller.position.scrollTo(edge: .bottom) }
+        }
+    }
+
+    /// The dialogue box shrinks as navigation starts, so centre once the log has its final height.
+    private func centerSoon(_ proxy: ScrollViewProxy) {
+        Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            centerSelection(proxy)
         }
     }
 
@@ -265,7 +271,7 @@ struct MessageRow: View {
                 if let edits = message.edits { EditDiff(edits: edits).padding(.leading, 18) }
             }
         case .shell:
-            selectable(CodeBlock(language: "shell", code: text, selected: hovered, status: status)
+            selectable(CodeBlock(language: "shell", code: text, selected: hovered, status: status, isOutput: true)
                 .padding(.leading, 18)
                 .textSelection(.enabled), highlighted: false)
         case .system:
@@ -540,7 +546,7 @@ struct DialogueBox: View {
         if session.isBusy {
             // ⌘. opens a running terminal command instead; ⌃c still stops it.
             entries.append(MenuEntry(title: "STOP", index: session.prompt?.question != nil ? 1 : 0, color: Theme.red,
-                                     shortcut: session.terminal == nil ? "." : nil, action: session.stop))
+                                     shortcut: session.terminal == nil ? "." : nil, action: session.stopClaude))
         }
         if session.isTalking {
             entries.append(MenuEntry(title: "SKIP", index: 1, action: session.skipTyping))
@@ -626,7 +632,7 @@ struct DialogueBox: View {
     private func heading(at date: Date) -> String {
         if navigator.active { return "NAVIGATE" }
         if isAnswering { return "YOUR ANSWER" }
-        if session.isBusy && !session.isRunningShell {
+        if session.isBusy {
             let dots = Int(date.timeIntervalSinceReferenceDate / 0.4) % 4
             return "CLAUDE IS THINKING" + String(repeating: ".", count: dots) + String(repeating: "\u{2007}", count: 3 - dots)
         }
@@ -643,7 +649,7 @@ struct DialogueBox: View {
         if navigator.active { return "Press i or escape to type (⇥ terminal)" }
         if session.awaitingSecret && inTerminal { return "Type the password…  (⏎ send · ⌃c stop)" }
         if session.isRunningShell && inTerminal { return "Type input for the running command…  (⏎ send · ⌃c stop · ⌘. open terminal)" }
-        if session.isRunningShell { return "A command is running…  (⌘. open terminal · ⇥ to type into it · ⌃c stop)" }
+        if session.isRunningShell { return "Speak to Claude while the command runs…  (⇥ to type into it · ⌘. open terminal · ⌃c stop)" }
         if inTerminal { return "Run a command in the terminal…  (⇥ back to Claude)" }
         return "Speak to Claude…  (⏎ send · ⇧⏎ newline · ! shell · ⇥ terminal · esc navigate)"
     }
@@ -707,13 +713,16 @@ struct DialogueBox: View {
 
     private var mood: Mood {
         if session.isTalking { return .talking }
-        if session.isBusy && !session.isRunningShell { return .thinking }
+        if session.isBusy { return .thinking }
         return session.messages.last?.speaker == .system ? .worried : .idle
     }
 
+    /// Stops what the input is aimed at: the command from terminal mode, otherwise Claude, falling back to whichever is running.
     private func interrupt() {
-        if session.isBusy {
-            session.stop()
+        if session.isRunningShell && (inTerminal || !session.isBusy) {
+            session.stopTerminal()
+        } else if session.isBusy {
+            session.stopClaude()
         } else if !session.draft.isEmpty {
             session.draft = ""
         } else if exitArmed {
@@ -756,9 +765,7 @@ struct DialogueBox: View {
         if isAnswering {
             guard !session.draft.trimmed.isEmpty else { return }
             session.reply(session.expandedDraft.trimmed)
-        } else if !session.isBusy {
-            session.send(inTerminal ? shownEntry : session.expandedDraft)
-        } else {
+        } else if !session.send(inTerminal ? shownEntry : session.expandedDraft) {
             return
         }
         session.draft = ""

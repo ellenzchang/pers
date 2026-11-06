@@ -6,6 +6,7 @@ struct SessionOverview: View {
     static let reservedWidth = leadingInset + width
 
     @EnvironmentObject var store: AppStore
+    var navigator: Navigator
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -18,7 +19,7 @@ struct SessionOverview: View {
                                 .lineLimit(1)
                                 .padding(.leading, 4)
                             ForEach(repo.sessions) { session in
-                                OverviewRow(session: session, selected: session.id == store.selectedId)
+                                OverviewRow(session: session, selected: session.id == store.selectedId, navigator: navigator)
                             }
                         }
                     }
@@ -33,6 +34,7 @@ private struct OverviewRow: View {
     @EnvironmentObject var store: AppStore
     @ObservedObject var session: Session
     var selected: Bool
+    var navigator: Navigator
     @ViewState private var hovered = false
     @ViewState private var tabTitle: String?
     private var highlighted: Bool { hovered || selected }
@@ -55,8 +57,17 @@ private struct OverviewRow: View {
                     if session.hasUnread { tag("NEW") }
                     if session.forkedFrom != nil { tag("FORK") }
                 }
+                if let terminal = session.terminal {
+                    RunLine(name: "❯ \(terminal.command)", status: session.terminalStatus.uppercased(), color: Theme.green,
+                            highlighted: highlighted, isActive: true, stopOrDismiss: session.stopTerminal)
+                        .contentShape(Rectangle())
+                        .onTapGesture(perform: showTerminalMessage)
+                }
                 ForEach(store.runs.filter { $0.directory == session.directory }) { run in
-                    RunLine(run: run, highlighted: highlighted)
+                    RunLine(name: "▸ \(run.action.name)", status: run.state.label(readyMarker: run.action.readyMarker), color: run.state.color,
+                            highlighted: highlighted, isActive: run.isActive) {
+                        if run.isActive { run.stop() } else { store.dismiss(run) }
+                    }
                 }
             }
             Spacer(minLength: 0)
@@ -77,6 +88,15 @@ private struct OverviewRow: View {
             tabTitle = await Task.detached { SaveData.title(ofSession: sessionId) }.value
         }
         .onTapGesture { store.selectedId = session.id }
+    }
+
+    /// Selects the command's message in navigation mode, where ⏎ opens its terminal.
+    private func showTerminalMessage() {
+        guard let id = session.terminalMessageId else { return }
+        store.selectedId = session.id
+        session.showChat()
+        navigator.messageId = id
+        navigator.active = true
     }
 
     private func tag(_ text: String) -> some View {

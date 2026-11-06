@@ -42,7 +42,7 @@ struct ClaudeBar: View {
             return [("y", "allow")] + (prompt.suggestions.isEmpty ? [] : [("a", "always")]) + [("n", "deny")]
         }
         if typing { return [("⏎", "send"), ("ESC", "back")] }
-        return hints + (session.isBusy ? [("s", "stop")] : [])
+        return hints + (session.isBusy || session.isRunningShell ? [("s", "stop")] : [])
     }
 
     /// What Claude or the shell said since the last thing the user sent.
@@ -59,7 +59,7 @@ struct ClaudeBar: View {
     private var inputRow: some View {
         HStack(spacing: 10) {
             Group {
-                if session.isBusy && !session.isRunningShell {
+                if session.isBusy {
                     Text("◈ \(activity)").foregroundStyle(Theme.aqua).lineLimit(1)
                 } else if mode == .terminal {
                     Text((session.directory as NSString).abbreviatingWithTildeInPath + " ❯").foregroundStyle(Theme.green)
@@ -92,7 +92,7 @@ struct ClaudeBar: View {
                             .allowsHitTesting(false)
                     }
                 }
-            if session.isBusy {
+            if session.isBusy || session.isRunningShell {
                 Button { session.stop() } label: { Chip(color: Theme.red) { Text("STOP") } }
                     .buttonStyle(.plain)
             }
@@ -172,9 +172,7 @@ struct ClaudeBar: View {
         guard !text.isEmpty else { return }
         if session.prompt?.question != nil {
             session.reply(text)
-        } else if !session.isBusy {
-            session.send(mode == .terminal ? Session.terminalMarker + text : text)
-        } else {
+        } else if !session.send(mode == .terminal ? Session.terminalMarker + text : text) {
             return
         }
         draft = ""

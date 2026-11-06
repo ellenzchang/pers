@@ -189,6 +189,8 @@ struct CodeBlock: View {
     var code: String
     var selected = false
     var status: String?
+    /// Terminal output, which can run to hundreds of lines and keeps growing while the command runs.
+    var isOutput = false
     @ViewState private var copied = false
 
     var body: some View {
@@ -217,16 +219,46 @@ struct CodeBlock: View {
             .padding(.vertical, 5)
             .background(Theme.cyan.opacity(0.08))
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(SyntaxHighlighter.highlight(code))
-                    .font(Theme.code)
-                    .lineSpacing(2)
-                    .padding(10)
-                    .fixedSize(horizontal: true, vertical: true)
+            if isOutput {
+                TerminalOutput(text: code)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(SyntaxHighlighter.highlight(code))
+                        .font(Theme.code)
+                        .lineSpacing(2)
+                        .padding(10)
+                        .fixedSize(horizontal: true, vertical: true)
+                }
             }
         }
         .background(Theme.codeBackground)
         .overlay(Rectangle().strokeBorder(selected ? Theme.gold : Theme.cyan.opacity(0.35), lineWidth: selected ? 2 : 1.5))
+    }
+}
+
+/// Plain text in a box of limited height that follows the end of the output unless scrolled up.
+private struct TerminalOutput: View {
+    var text: String
+    @StateObject private var scroller = LogScroller()
+    private static let maxHeight: CGFloat = 320
+    private static let lineHeight = NSLayoutManager().defaultLineHeight(for: .monospacedSystemFont(ofSize: 12.5, weight: .regular)) + 2
+
+    var body: some View {
+        // Sized from the line count instead of measured, so the box has its final height on first layout
+        // and doesn't shift the chat around it.
+        let lines = CGFloat(text.utf8.lazy.filter { $0 == 10 }.count + 1)
+        ScrollView([.vertical, .horizontal], showsIndicators: false) {
+            Text(text)
+                .font(Theme.code)
+                .lineSpacing(2)
+                .padding(10)
+                .fixedSize()
+        }
+        .frame(height: min(lines * Self.lineHeight + 20, Self.maxHeight))
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollPosition($scroller.position)
+        .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { scroller.track($1) }
+        .onChange(of: text) { if scroller.followsBottom { scroller.position.scrollTo(edge: .bottom) } }
     }
 }
 

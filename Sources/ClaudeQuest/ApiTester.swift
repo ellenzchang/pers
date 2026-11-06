@@ -298,7 +298,7 @@ struct APITester: View {
         case (_, "c") where initial: ask(.claude)
         case (_, "t") where initial: ask(.terminal)
         case (_, "o") where initial: store.page = .sessions
-        case (_, "s") where initial && session.isBusy: session.stop()
+        case (_, "s") where initial && (session.isBusy || session.isRunningShell): session.stop()
         default: return pane == .requests ? requestKey(press, deleteArmed: armed) : responseKey(press, yankArmed: armedYank)
         }
         return .handled

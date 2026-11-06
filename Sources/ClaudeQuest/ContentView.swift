@@ -47,7 +47,7 @@ struct ContentView: View {
         .overlay(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 14) {
                 if Theme.isQuest { DayPanel() }
-                SessionOverview()
+                SessionOverview(navigator: navigator)
             }
             .frame(width: SessionOverview.width, alignment: .topLeading)
             .padding(.top, 34)

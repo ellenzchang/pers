@@ -584,21 +584,24 @@ private struct ActionEditor: View {
     }
 }
 
-/// A run in the overview, under each tab open in the directory it runs in.
+/// A process in the overview, like an action run or a terminal command, with a button to stop it or dismiss it once it's done.
 struct RunLine: View {
-    @EnvironmentObject var store: AppStore
-    var run: ActionRun
+    var name: String
+    var status: String
+    var color: Color
     var highlighted: Bool
+    var isActive: Bool
+    var stopOrDismiss: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
-            Text("▸ \(run.action.name)").lineLimit(1)
+            Text(name).lineLimit(1)
             Spacer(minLength: 0)
-            Text(run.state.label(readyMarker: run.action.readyMarker))
-                .foregroundStyle(highlighted ? Theme.navy : run.state.color)
-            Button { if run.isActive { run.stop() } else { store.dismiss(run) } } label: { Text(run.isActive ? "■" : "×") }
+            Text(status)
+                .foregroundStyle(highlighted ? Theme.navy : color)
+            Button(action: stopOrDismiss) { Text(isActive ? "■" : "×") }
                 .buttonStyle(.plain)
-                .help(run.isActive ? "Stop" : "Dismiss")
+                .help(isActive ? "Stop" : "Dismiss")
         }
         .font(Theme.ui(11, weight: .bold))
     }

@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 final class ShellTerminal: NSObject, LocalProcessTerminalViewDelegate {
     let view: LocalProcessTerminalView
+    let command: String
     private(set) var directory: String?
     /// What the running program wants from the keyboard.
     struct Mode: Equatable {
@@ -23,8 +24,12 @@ final class ShellTerminal: NSObject, LocalProcessTerminalViewDelegate {
     private var mode = Mode()
     var onExit: (Int32?) -> Void = { _ in }
     private var refreshPending = false
+    /// The chat shows only the tail, since re-reading and laying out the whole scrollback on every refresh lags behind
+    /// long builds. The opened terminal keeps all of it.
+    private static let chatLines = 500
 
-    init(script: String, in directory: String) {
+    init(_ command: String, script: String, in directory: String) {
+        self.command = command
         // Offscreen it still needs a size; a wide one keeps long lines from wrapping in the chat.
         view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 1400, height: 600), options: TerminalOptions(scrollback: 10_000))
         super.init()
@@ -69,7 +74,7 @@ final class ShellTerminal: NSObject, LocalProcessTerminalViewDelegate {
         guard !refreshPending else { return }
         refreshPending = true
         Task {
-            try? await Task.sleep(for: .milliseconds(50))
+            try? await Task.sleep(for: .milliseconds(100))
             refresh()
         }
     }
@@ -78,8 +83,9 @@ final class ShellTerminal: NSObject, LocalProcessTerminalViewDelegate {
     private func refresh() {
         refreshPending = false
         mode = currentMode()
-        let text = String(decoding: view.getBufferAsData(kind: .normal), as: UTF8.self)
-        onOutput(text.replacingOccurrences(of: "(?m)[ \\t]+$", with: "", options: .regularExpression).trimmed, mode)
+        let rows = view.terminalContentSnapshot(region: .history(maximumScrollbackRows: Self.chatLines), buffer: .normal)?.rows ?? []
+        let text = rows.reduce(into: "") { text, row in text += (row.isWrapped || text.isEmpty ? "" : "\n") + row.text }
+        onOutput(text.trimmed, mode)
     }
 
     /// Programs often switch modes after printing their prompt, so output alone doesn't catch every change.

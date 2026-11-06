@@ -28,8 +28,8 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var showingLog = false
     @Published private(set) var commits: [Commit] = []
     @Published private(set) var openedCommit: Commit?
+    /// Claude is taking a turn. Terminal commands run alongside it, so they don't count.
     @Published private(set) var isBusy = false
-    @Published private(set) var isRunningShell = false
     @Published private(set) var typingId: UUID?
     @Published private(set) var revealed = 0
     @Published private(set) var prompt: PermissionPrompt?
@@ -44,6 +44,7 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var terminalMode = ShellTerminal.Mode()
     private(set) var terminalMessageId: UUID?
     @Published var showingTerminal = false
+    var isRunningShell: Bool { terminal != nil }
     private var interrupted = false
     @Published private(set) var resets = 0
     @Published var hasUnread = false
@@ -164,6 +165,14 @@ final class Session: ObservableObject, Identifiable {
         openedCommit = nil
     }
 
+    /// Brings the message log back from the diff, the commit log or the open terminal.
+    func showChat() {
+        showingDiff = false
+        showingLog = false
+        openedCommit = nil
+        showingTerminal = false
+    }
+
     func toggleDiffBase() {
         guard showingDiff else { return }
         diffBase = diffBase.toggled
@@ -232,12 +241,19 @@ final class Session: ObservableObject, Identifiable {
     }
 
     func stop() {
-        if let terminal {
-            interrupted = true
-            terminal.stop()
-        }
+        stopClaude()
+        stopTerminal()
+    }
+
+    func stopClaude() {
         process?.terminate()
         resolveFix("Cancel")
+    }
+
+    func stopTerminal() {
+        guard let terminal else { return }
+        interrupted = true
+        terminal.stop()
     }
 
     func skipTyping() {
@@ -257,18 +273,26 @@ final class Session: ObservableObject, Identifiable {
         return match.map { String($0.dropFirst(draft.count)) }
     }
 
-    func send(_ text: String) {
-        guard !isBusy, !text.trimmed.isEmpty || !images.isEmpty else { return }
+    /// A terminal command and a Claude turn can run at the same time, but only one of each. Returns whether it was sent.
+    @discardableResult
+    func send(_ text: String) -> Bool {
+        let command = text.hasPrefix("!") || text.hasPrefix(Self.terminalMarker) ? String(text.dropFirst()) : nil
+        // thefuck asks for confirmation through Claude's permission prompt, so it takes Claude's turn.
+        let usesClaude = command == nil || command?.trimmed == "fuck"
+        guard usesClaude ? !isBusy : !isRunningShell, !text.trimmed.isEmpty || !images.isEmpty else { return false }
         checkTranscript()
         if !text.trimmed.isEmpty, inputHistory.last != text { inputHistory = Array((inputHistory + [text]).suffix(100)) }
         let attached = images
         images = []
         messages.append(ChatMessage(speaker: .user, text: text.trimmed, images: attached.isEmpty ? nil : attached))
+        if let command, !usesClaude {
+            runShell(command)
+            return true
+        }
         isBusy = true
-        if text.hasPrefix("!") || text.hasPrefix(Self.terminalMarker) {
-            isRunningShell = true
-            let command = String(text.dropFirst())
-            return command.trimmed == "fuck" ? fixLastCommand() : runShell(command)
+        if command != nil {
+            fixLastCommand()
+            return true
         }
 
         var args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
@@ -288,7 +312,7 @@ final class Session: ObservableObject, Identifiable {
             try process.run()
         } catch {
             finish(error: error.localizedDescription)
-            return
+            return true
         }
         self.process = process
         input = stdin.fileHandleForWriting
@@ -317,6 +341,7 @@ final class Session: ObservableObject, Identifiable {
                 if advising { advise() }
             }
         }
+        return true
     }
 
     private static let advicePreamble = "A second model reviewed your previous turn. Address its notes, or say why you disagree:\n\n"
@@ -384,7 +409,7 @@ final class Session: ObservableObject, Identifiable {
     /// functions and PATH are available, like in the user's own terminal. Pagers are off since the chat
     /// can't scroll them.
     private func runShell(_ command: String) {
-        let terminal = ShellTerminal(script: "export PAGER=cat GIT_PAGER=cat\n\(command)\nprintf '\\e]7;%s\\a' \"$PWD\"", in: directory)
+        let terminal = ShellTerminal(command, script: "export PAGER=cat GIT_PAGER=cat\n\(command)\nprintf '\\e]7;%s\\a' \"$PWD\"", in: directory)
         self.terminal = terminal
         interrupted = false
         // Added before any output, so a quiet command still shows that it's running.
@@ -401,8 +426,15 @@ final class Session: ObservableObject, Identifiable {
         terminal.onExit = { [weak self] exitCode in
             guard let self else { return }
             messages.removeAll { $0.id == message.id && $0.text.isEmpty }
-            if let cwd = terminal.directory, cwd != directory { directory = cwd }
-            finish(error: interrupted || exitCode == nil ? "Interrupted." : nil)
+            // Moving folders starts a new Claude session, which would cut off a turn in progress.
+            if let cwd = terminal.directory, cwd != directory, !isBusy { directory = cwd }
+            if interrupted || exitCode == nil {
+                let index = messages.firstIndex { $0.id == message.id }.map { $0 + 1 } ?? messages.endIndex
+                messages.insert(ChatMessage(speaker: .system, text: "Interrupted."), at: index)
+            }
+            self.terminal = nil
+            terminalMessageId = nil
+            refreshGit()
         }
     }
 
@@ -561,10 +593,7 @@ final class Session: ObservableObject, Identifiable {
         input = nil
         prompt = nil
         process = nil
-        terminal = nil
-        terminalMessageId = nil
         isBusy = false
-        isRunningShell = false
         refreshGit()
     }
 
