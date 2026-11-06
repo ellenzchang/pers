@@ -51,10 +51,24 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     var text: String
     var images: [Data]?
     var edits: [Edit]?
+    /// Terminal output's colours, covering `text` in order.
+    var colors: [ColorRun]?
 
     struct Edit: Codable, Equatable {
         var old: String
         var new: String
+    }
+}
+
+struct ColorRun: Codable, Equatable {
+    var length: Int
+    var style: Style
+
+    struct Style: Codable, Equatable {
+        /// An xterm 256-colour palette index.
+        var ansi: UInt8?
+        var rgb: UInt32?
+        var bold = false
     }
 }
 

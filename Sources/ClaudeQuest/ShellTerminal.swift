@@ -20,7 +20,7 @@ final class ShellTerminal: NSObject, LocalProcessTerminalViewDelegate {
         var interactive: Bool { fullScreen || wantsKeys }
     }
 
-    var onOutput: (String, Mode) -> Void = { _, _ in }
+    var onOutput: (String, [ColorRun], Mode) -> Void = { _, _, _ in }
     private var mode = Mode()
     var onExit: (Int32?) -> Void = { _ in }
     private var refreshPending = false
@@ -83,9 +83,27 @@ final class ShellTerminal: NSObject, LocalProcessTerminalViewDelegate {
     private func refresh() {
         refreshPending = false
         mode = currentMode()
-        let rows = view.terminalContentSnapshot(region: .history(maximumScrollbackRows: Self.chatLines), buffer: .normal)?.rows ?? []
-        let text = rows.reduce(into: "") { text, row in text += (row.isWrapped || text.isEmpty ? "" : "\n") + row.text }
-        onOutput(text.trimmed, mode)
+        var rows = view.terminalContentSnapshot(region: .history(maximumScrollbackRows: Self.chatLines), buffer: .normal)?.rows ?? []
+        while rows.first?.text.isEmpty == true { rows.removeFirst() }
+        while rows.last?.text.isEmpty == true { rows.removeLast() }
+        var text = ""
+        var runs: [ColorRun] = []
+        func append(_ string: String, _ style: ColorRun.Style) {
+            text += string
+            if runs.last?.style == style {
+                runs[runs.count - 1].length += string.count
+            } else {
+                runs.append(ColorRun(length: string.count, style: style))
+            }
+        }
+        for row in rows {
+            if !row.isWrapped && !text.isEmpty { append("\n", ColorRun.Style()) }
+            // Wide characters leave an empty cell after them, and `text` is trimmed of the row's trailing blanks.
+            for cell in row.cells.filter({ $0.width > 0 }).prefix(row.text.count) {
+                append(cell.text.isEmpty ? " " : cell.text, ColorRun.Style(cell.attribute))
+            }
+        }
+        onOutput(text, runs, mode)
     }
 
     /// Programs often switch modes after printing their prompt, so output alone doesn't catch every change.
@@ -159,5 +177,16 @@ struct TerminalPane: NSViewRepresentable {
             guard window != nil else { return }
             DispatchQueue.main.async { [terminal] in terminal?.focus() }
         }
+    }
+}
+
+private extension ColorRun.Style {
+    init(_ attribute: Attribute) {
+        switch attribute.fg {
+        case .ansi256(let code): ansi = code
+        case .trueColor(let red, let green, let blue): rgb = UInt32(red) << 16 | UInt32(green) << 8 | UInt32(blue)
+        case .defaultColor, .defaultInvertedColor: break
+        }
+        bold = attribute.style.contains(.bold)
     }
 }

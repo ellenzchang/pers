@@ -416,12 +416,15 @@ final class Session: ObservableObject, Identifiable {
         let message = ChatMessage(speaker: .shell, text: "")
         terminalMessageId = message.id
         messages.append(message)
-        terminal.onOutput = { [weak self] output, mode in
+        terminal.onOutput = { [weak self] output, colors, mode in
             guard let self else { return }
             // Programs that read keys can't be used from the chat, so open the terminal for them, once, so ⌘. can still leave.
             if mode.interactive && !terminalMode.interactive { showingTerminal = true }
             terminalMode = mode
-            if let index = messages.firstIndex(where: { $0.id == message.id }) { messages[index].text = output }
+            if let index = messages.firstIndex(where: { $0.id == message.id }) {
+                messages[index].text = output
+                messages[index].colors = colors
+            }
         }
         terminal.onExit = { [weak self] exitCode in
             guard let self else { return }

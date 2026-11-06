@@ -191,6 +191,7 @@ struct CodeBlock: View {
     var status: String?
     /// Terminal output, which can run to hundreds of lines and keeps growing while the command runs.
     var isOutput = false
+    var colors: [ColorRun]?
     @ViewState private var copied = false
 
     var body: some View {
@@ -220,7 +221,7 @@ struct CodeBlock: View {
             .background(Theme.cyan.opacity(0.08))
 
             if isOutput {
-                TerminalOutput(text: code)
+                TerminalOutput(text: code, colors: colors ?? [])
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     Text(SyntaxHighlighter.highlight(code))
@@ -236,9 +237,10 @@ struct CodeBlock: View {
     }
 }
 
-/// Plain text in a box of limited height that follows the end of the output unless scrolled up.
+/// Coloured text in a box of limited height that follows the end of the output unless scrolled up.
 private struct TerminalOutput: View {
     var text: String
+    var colors: [ColorRun]
     @StateObject private var scroller = LogScroller()
     private static let maxHeight: CGFloat = 320
     private static let lineHeight = NSLayoutManager().defaultLineHeight(for: .monospacedSystemFont(ofSize: 12.5, weight: .regular)) + 2
@@ -248,17 +250,51 @@ private struct TerminalOutput: View {
         // and doesn't shift the chat around it.
         let lines = CGFloat(text.utf8.lazy.filter { $0 == 10 }.count + 1)
         ScrollView([.vertical, .horizontal], showsIndicators: false) {
-            Text(text)
+            Text(styled)
                 .font(Theme.code)
                 .lineSpacing(2)
                 .padding(10)
                 .fixedSize()
         }
         .frame(height: min(lines * Self.lineHeight + 20, Self.maxHeight))
+        .defaultScrollAnchor(.topLeading, for: .alignment)
         .scrollBounceBehavior(.basedOnSize)
         .scrollPosition($scroller.position)
         .onScrollGeometryChange(for: ScrollGeometry.self, of: { $0 }) { scroller.track($1) }
         .onChange(of: text) { if scroller.followsBottom { scroller.position.scrollTo(edge: .bottom) } }
+    }
+
+    private var styled: AttributedString {
+        var styled = AttributedString()
+        var start = text.startIndex
+        for run in colors {
+            let end = text.index(start, offsetBy: run.length, limitedBy: text.endIndex) ?? text.endIndex
+            var part = AttributedString(text[start..<end])
+            part.foregroundColor = run.style.color
+            if run.style.bold { part.font = Theme.code.bold() }
+            styled += part
+            start = end
+        }
+        return styled + AttributedString(text[start...])
+    }
+}
+
+private extension ColorRun.Style {
+    /// The 16 basic colours follow the theme. Black is drawn dim, since it would vanish on the dark background.
+    var color: Color? {
+        if let rgb { return Color(hex: rgb) }
+        guard let ansi else { return nil }
+        switch ansi {
+        case 0..<16:
+            return [Theme.dim, Theme.red, Theme.green, Theme.gold, Theme.cyan, Theme.pink, Theme.aqua, Theme.text][Int(ansi % 8)]
+        case 16..<232:
+            let index = Int(ansi) - 16
+            let level = { (value: Int) in UInt32(value == 0 ? 0 : 55 + value * 40) }
+            return Color(hex: level(index / 36) << 16 | level(index / 6 % 6) << 8 | level(index % 6))
+        default:
+            let gray = UInt32(8 + (Int(ansi) - 232) * 10)
+            return Color(hex: gray << 16 | gray << 8 | gray)
+        }
     }
 }
 

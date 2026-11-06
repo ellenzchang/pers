@@ -271,7 +271,7 @@ struct MessageRow: View {
                 if let edits = message.edits { EditDiff(edits: edits).padding(.leading, 18) }
             }
         case .shell:
-            selectable(CodeBlock(language: "shell", code: text, selected: hovered, status: status, isOutput: true)
+            selectable(CodeBlock(language: "shell", code: text, selected: hovered, status: status, isOutput: true, colors: message.colors)
                 .padding(.leading, 18)
                 .textSelection(.enabled), highlighted: false)
         case .system:
