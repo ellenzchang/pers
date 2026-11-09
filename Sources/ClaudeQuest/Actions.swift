@@ -244,7 +244,7 @@ struct ActionPanel: View {
                 .padding(.bottom, 18)
                 .panel(accent: Theme.gold, padding: 18, opacity: 1)
                 .overlay(alignment: .bottomTrailing) {
-                    KeyHints(hints: hints, highlighted: deleteArmed ? "x" : nil)
+                    KeyHints(hints: hints, highlighted: deleteArmed ? KeyAction.deleteAction.label : nil)
                         .padding(.horizontal, 10)
                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                         .padding(.leading, 30)
@@ -353,9 +353,12 @@ struct ActionPanel: View {
 
     private var hints: [(key: String, action: String)] {
         if editing != nil { return [("⏎", "save"), ("⇥", "next field"), ("⌥⏎", "new line"), ("ESC", "cancel")] }
-        if choosing != nil { return [("↑↓ jk", "select"), ("⏎", "run"), ("ESC", "cancel")] }
-        return [("↑↓ jk", "select"), ("⇥", showingGlobal ? "local" : "global"), ("⏎", "run"), ("s", "stop"), ("␣", "output"), ("e", "edit"), ("n", "new"),
-                ("x", deleteArmed ? "again to delete" : "delete"), ("ESC ⌘A", "close")]
+        let select = (KeyAction.label(.down, .up), "select")
+        if choosing != nil { return [select, (KeyAction.select.label, "run"), (KeyAction.back.label, "cancel")] }
+        return [select, (KeyAction.switchScope.label, showingGlobal ? "local" : "global"), (KeyAction.select.label, "run"),
+                (KeyAction.stopAction.label, "stop"), (KeyAction.toggleOutput.label, "output"), (KeyAction.editAction.label, "edit"),
+                (KeyAction.newAction.label, "new"), (KeyAction.deleteAction.label, deleteArmed ? "again to delete" : "delete"),
+                (KeyAction.label(.back, .actions), "close")]
     }
 
     private func editor(for action: Action) -> some View {
@@ -363,23 +366,22 @@ struct ActionPanel: View {
             .id(action.id)
     }
 
-    /// Plain keys only, since the app's own shortcuts all use ⌘ and stay live while the panel has focus.
     private func handle(_ press: KeyPress) -> KeyPress.Result {
-        guard editing == nil, press.modifiers.isDisjoint(with: [.command, .control, .option]) else { return .ignored }
+        guard editing == nil else { return .ignored }
         let action = selectedAction
         let run = action.flatMap { store.run(of: $0, in: session.directory) }
         if let action, choosing == action.id { return handleChoice(press, of: action) }
-        switch (press.key, press.characters) {
-        case (.escape, _): store.showingActions = false
-        case (.tab, _) where press.phase == .down: showingGlobal.toggle()
-        case (.downArrow, _), (_, "j"): selected = min(selected + 1, actions.count)
-        case (.upArrow, _), (_, "k"): selected = max(selected - 1, 0)
-        case (.return, _) where press.phase == .down: if let action { self.run(action) } else { startNew() }
-        case (_, "s"): run?.stop()
-        case (.space, _) where press.phase == .down: if let action { toggleOutput(of: action) }
-        case (_, "e"): if let action { editing = action }
-        case (_, "n"): startNew()
-        case (_, "x") where press.phase == .down:
+        switch press.action(in: .navigation, .actions) {
+        case .back: store.showingActions = false
+        case .switchScope where press.phase == .down: showingGlobal.toggle()
+        case .down: selected = min(selected + 1, actions.count)
+        case .up: selected = max(selected - 1, 0)
+        case .select where press.phase == .down: if let action { self.run(action) } else { startNew() }
+        case .stopAction: run?.stop()
+        case .toggleOutput where press.phase == .down: if let action { toggleOutput(of: action) }
+        case .editAction: if let action { editing = action }
+        case .newAction: startNew()
+        case .deleteAction where press.phase == .down:
             guard let action, run?.isActive != true else { break }
             if deleteArmed { store.actions.removeAll { $0.id == action.id } }
             deleteArmed.toggle()
@@ -390,12 +392,12 @@ struct ActionPanel: View {
 
     private func handleChoice(_ press: KeyPress, of action: Action) -> KeyPress.Result {
         let choices = action.choiceList
-        switch (press.key, press.characters) {
-        case (.escape, _): choosing = nil
-        case (.downArrow, _), (_, "j"): choiceIndex = min(choiceIndex + 1, choices.count - 1)
-        case (.upArrow, _), (_, "k"): choiceIndex = max(choiceIndex - 1, 0)
-        case (.return, _) where press.phase == .down: run(action, choice: choices[choiceIndex])
-        default: break
+        switch press.action(in: .navigation) {
+        case .back: choosing = nil
+        case .down: choiceIndex = min(choiceIndex + 1, choices.count - 1)
+        case .up: choiceIndex = max(choiceIndex - 1, 0)
+        case .select where press.phase == .down: run(action, choice: choices[choiceIndex])
+        default: return .ignored
         }
         return .handled
     }

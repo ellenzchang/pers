@@ -25,7 +25,7 @@ final class Navigator: ObservableObject {
     }
 
     var armedKey: String? {
-        forkArmed ? "f" : yankArmed ? "y" : nil
+        forkArmed ? KeyAction.fork.label : yankArmed ? KeyAction.copy.label : nil
     }
 
     func disarm() {
@@ -55,14 +55,14 @@ final class Navigator: ObservableObject {
         let diff = session.diff
         let file = file(in: diff)
         let row = file?.lines.indices.contains(line(in: diff)) == true ? file?.lines[line(in: diff)] : nil
-        switch (press.key, press.characters) {
-        case (.downArrow, _), (_, "j"): moveLine(by: 1, in: diff)
-        case (.upArrow, _), (_, "k"): moveLine(by: -1, in: diff)
-        case (_, "g"): setLine(0, in: diff)
-        case (_, "G"): setLine(.max, in: diff)
-        case (_, "J"): moveFile(by: 1, in: diff)
-        case (_, "K"): moveFile(by: -1, in: diff)
-        case (_, "y") where press.phase == .down:
+        switch press.action(in: .navigation, .diff) {
+        case .down: moveLine(by: 1, in: diff)
+        case .up: moveLine(by: -1, in: diff)
+        case .top: setLine(0, in: diff)
+        case .bottom: setLine(.max, in: diff)
+        case .nextGroup: moveFile(by: 1, in: diff)
+        case .previousGroup: moveFile(by: -1, in: diff)
+        case .copy where press.phase == .down:
             guard let row else { break }
             if yankArmed {
                 NSPasteboard.general.clearContents()
@@ -72,8 +72,8 @@ final class Navigator: ObservableObject {
                 disarm()
                 yankArmed = true
             }
-        case (.delete, _) where session.openedCommit != nil: session.closeCommit()
-        case (.return, _):
+        case .backToLog where session.openedCommit != nil: session.closeCommit()
+        case .select:
             if let file, let row { session.quote(row, in: file) }
         default: return false
         }
@@ -86,16 +86,16 @@ final class Navigator: ObservableObject {
 
     func navigateLog(_ press: KeyPress, in session: Session) {
         let commits = session.commits
-        switch (press.key, press.characters) {
-        case (.downArrow, _), (_, "j"): commitIndex = min(commit(in: commits) + 1, max(commits.count - 1, 0))
-        case (.upArrow, _), (_, "k"): commitIndex = max(commit(in: commits) - 1, 0)
-        case (_, "g"): commitIndex = 0
-        case (_, "G"): commitIndex = max(commits.count - 1, 0)
-        case (.return, _):
+        switch press.action(in: .navigation) {
+        case .down: commitIndex = min(commit(in: commits) + 1, max(commits.count - 1, 0))
+        case .up: commitIndex = max(commit(in: commits) - 1, 0)
+        case .top: commitIndex = 0
+        case .bottom: commitIndex = max(commits.count - 1, 0)
+        case .select:
             guard commits.indices.contains(commit(in: commits)) else { break }
             diffPath = nil
             session.open(commits[commit(in: commits)])
-        case (_, "y") where press.phase == .down:
+        case .copy where press.phase == .down:
             guard commits.indices.contains(commit(in: commits)) else { break }
             if yankArmed {
                 NSPasteboard.general.clearContents()

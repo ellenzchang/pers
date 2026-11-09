@@ -5,6 +5,7 @@ import AppKit
 struct ClaudeQuestApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @StateObject private var store = AppStore()
+    @ObservedObject private var keymap = Keymap.shared
 
     var body: some Scene {
         WindowGroup("Claude Quest") {
@@ -18,23 +19,23 @@ struct ClaudeQuestApp: App {
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("New Tab") { store.newTab() }.keyboardShortcut("t")
-                Button("Close Tab") { store.selected.map(store.close) }.keyboardShortcut("w")
+                Button("New Tab") { store.newTab() }.keyboardShortcut(.newTab)
+                Button("Close Tab") { store.selected.map(store.close) }.keyboardShortcut(.closeTab)
             }
             CommandMenu("Party") {
-                Button("Previous Model") { cycleModel(by: -1) }.keyboardShortcut("j")
-                Button("Next Model") { cycleModel(by: 1) }.keyboardShortcut("k")
-                Button("Next Mode") { cycleMode() }.keyboardShortcut("m", modifiers: [.command, .shift])
-                Button("Next Effort") { cycleEffort() }.keyboardShortcut("e", modifiers: [.command, .shift])
+                Button("Previous Model") { cycleModel(by: -1) }.keyboardShortcut(.previousModel)
+                Button("Next Model") { cycleModel(by: 1) }.keyboardShortcut(.nextModel)
+                Button("Next Mode") { cycleMode() }.keyboardShortcut(.nextMode)
+                Button("Next Effort") { cycleEffort() }.keyboardShortcut(.nextEffort)
                 Divider()
-                Button("Toggle Diff") { store.selected?.toggleDiff() }.keyboardShortcut("d")
-                Button("Toggle Diff Base") { store.selected?.toggleDiffBase() }.keyboardShortcut("b", modifiers: [.command, .shift])
-                Button("Toggle Git Log") { store.selected?.toggleLog() }.keyboardShortcut("l")
-                Button("Previous Tab") { cycleTab(by: -1) }.keyboardShortcut("1")
-                Button("Next Tab") { cycleTab(by: 1) }.keyboardShortcut("2")
+                Button("Toggle Diff") { store.selected?.toggleDiff() }.keyboardShortcut(.toggleDiff)
+                Button("Toggle Diff Base") { store.selected?.toggleDiffBase() }.keyboardShortcut(.toggleDiffBase)
+                Button("Toggle Git Log") { store.selected?.toggleLog() }.keyboardShortcut(.toggleLog)
+                Button("Previous Tab") { cycleTab(by: -1) }.keyboardShortcut(.previousTab)
+                Button("Next Tab") { cycleTab(by: 1) }.keyboardShortcut(.nextTab)
             }
             CommandMenu("Go") {
-                Button("Map") { store.showingMap.toggle() }.keyboardShortcut("m", modifiers: .control)
+                Button("Map") { store.showingMap.toggle() }.keyboardShortcut(.map)
             }
         }
     }
@@ -60,7 +61,7 @@ struct ClaudeQuestApp: App {
     }
 
     private func cycleTab(by offset: Int) {
-        if store.page == .apiTester && !store.showingMap { return }
+        if store.page != .sessions && !store.showingMap { return }
         let sessions = store.repos.flatMap(\.sessions)
         guard let index = sessions.firstIndex(where: { $0.id == store.selectedId }) else { return }
         store.selectedId = sessions[(index + offset + sessions.count) % sessions.count].id

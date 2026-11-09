@@ -224,7 +224,7 @@ struct APITester: View {
                         Spacer(minLength: 0)
                     }
                 } else {
-                    Text(store.requestFolder == nil ? "Go to a repo in the terminal (t) to make a folder for it." : "Pick a request, or make a new one.")
+                    Text(store.requestFolder == nil ? "Go to a repo in the terminal (\(KeyAction.askTerminal.label)) to make a folder for it." : "Pick a request, or make a new one.")
                         .font(Theme.body)
                         .foregroundStyle(Theme.dim)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -253,34 +253,42 @@ struct APITester: View {
     }
 
     private var armedKey: String? {
-        if deleteArmed { return "x" }
-        return yankArmed.map { $0 == .selection ? "y" : "Y" }
+        if deleteArmed { return KeyAction.deleteRequest.label }
+        return yankArmed.map { $0 == .selection ? KeyAction.copy.label : KeyAction.copyAll.label }
     }
 
     private var hints: [(key: String, action: String)] {
         switch focused {
         case .page where pane == .requests, nil where pane == .requests:
-            return [("j k", "request"), ("J K", "folder"), ("⏎", "send"), ("e", "url"), ("r", "name"), ("h", "headers"), ("b", "body"),
-                    ("m", "method"), ("n", "new"), ("x", deleteArmed ? "again to delete" : "delete"), ("⇥", "response"), ("c", "claude"), ("t", "terminal"), ("o", "chat")]
+            return [(KeyAction.label(.down, .up), "request"), (KeyAction.label(.nextGroup, .previousGroup), "folder"), (KeyAction.select.label, "send"),
+                    (KeyAction.editURL.label, "url"), (KeyAction.renameRequest.label, "name"), (KeyAction.editHeaders.label, "headers"),
+                    (KeyAction.editBody.label, "body"), (KeyAction.cycleMethod.label, "method"), (KeyAction.newRequest.label, "new"),
+                    (KeyAction.deleteRequest.label, deleteArmed ? "again to delete" : "delete"), (KeyAction.switchPane.label, "response")] + paneHints
         case .page, nil:
-            return [("j k", "row"), ("g G", "top/end"), ("⏎ ␣", "expand"), ("h l", "fold"), ("E C", "all"), ("/", "search"),
-                    ("y", yankArmed == .selection ? "press y again to yank selection" : "yank"), ("Y", yankArmed == .whole ? "press Y again to yank all" : "yank all"),
-                    ("n N", "match"), ("H", "headers"), ("⇥", "request"), ("c", "claude"), ("t", "terminal"), ("o", "chat")]
+            let copy = KeyAction.copy.label, copyAll = KeyAction.copyAll.label
+            return [(KeyAction.label(.down, .up), "row"), (KeyAction.label(.top, .bottom), "top/end"), (KeyAction.label(.select, .toggleNode), "expand"),
+                    (KeyAction.label(.collapse, .expand), "fold"), (KeyAction.label(.expandAll, .collapseAll), "all"), (KeyAction.search.label, "search"),
+                    (copy, yankArmed == .selection ? "press \(copy) again to yank selection" : "yank"),
+                    (copyAll, yankArmed == .whole ? "press \(copyAll) again to yank all" : "yank all"),
+                    (KeyAction.label(.nextMatch, .previousMatch), "match"), (KeyAction.toggleHeaders.label, "headers"),
+                    (KeyAction.switchPane.label, "request")] + paneHints
         case .search:
             return [("⏎", "browse"), ("ESC", "back")]
         default:
-            return [("⌘⏎", "send"), ("ESC", "back")]
+            return [(KeyAction.sendRequest.label, "send"), ("ESC", "back")]
         }
     }
 
-    /// Plain keys only, since the app's own shortcuts all use ⌘ or ⌃ and stay live while the page has focus.
+    private var paneHints: [(key: String, action: String)] {
+        [(KeyAction.askClaude.label, "claude"), (KeyAction.askTerminal.label, "terminal"), (KeyAction.backToChat.label, "chat")]
+    }
+
     private func handle(_ press: KeyPress) -> KeyPress.Result {
         if let field = focused, field != .page {
             guard press.key == .escape else { return .ignored }
             focused = .page
             return .handled
         }
-        guard press.modifiers.isDisjoint(with: [.command, .control, .option]) else { return .ignored }
         let armed = deleteArmed
         let armedYank = yankArmed
         deleteArmed = false
@@ -288,17 +296,17 @@ struct APITester: View {
         let initial = press.phase == .down
         let session = store.requestSession
         let permission = session.prompt.flatMap { $0.question == nil ? $0 : nil }
-        switch (press.key, press.characters) {
-        case (_, "y") where initial && permission != nil: session.answer(permission!, allow: true)
-        case (_, "a") where initial && permission?.suggestions.isEmpty == false: session.answer(permission!, allow: true, always: true)
-        case (_, "n") where initial && permission != nil: session.answer(permission!, allow: false)
-        case (.escape, _) where initial:
+        switch press.action(in: .permission, .apiTester, .navigation) {
+        case .allow where initial && permission != nil: session.answer(permission!, allow: true)
+        case .allowAlways where initial && permission?.suggestions.isEmpty == false: session.answer(permission!, allow: true, always: true)
+        case .deny where initial && permission != nil: session.answer(permission!, allow: false)
+        case .back where initial:
             if pane == .response && !browser.query.isEmpty { browser.query = "" } else { dismissedReply = session.messages.count }
-        case (.tab, _) where initial: pane = pane == .requests ? .response : .requests
-        case (_, "c") where initial: ask(.claude)
-        case (_, "t") where initial: ask(.terminal)
-        case (_, "o") where initial: store.page = .sessions
-        case (_, "s") where initial && (session.isBusy || session.isRunningShell): session.stop()
+        case .switchPane where initial: pane = pane == .requests ? .response : .requests
+        case .askClaude where initial: ask(.claude)
+        case .askTerminal where initial: ask(.terminal)
+        case .backToChat where initial: store.page = .sessions
+        case .stop where initial && (session.isBusy || session.isRunningShell): session.stop()
         default: return pane == .requests ? requestKey(press, deleteArmed: armed) : responseKey(press, yankArmed: armedYank)
         }
         return .handled
@@ -307,21 +315,21 @@ struct APITester: View {
     private func requestKey(_ press: KeyPress, deleteArmed armed: Bool) -> KeyPress.Result {
         let initial = press.phase == .down
         let request = selectedIndex.map { store.requests[$0] }
-        switch (press.key, press.characters) {
-        case (.downArrow, _), (_, "j"): store.cycleRequest(by: 1)
-        case (.upArrow, _), (_, "k"): store.cycleRequest(by: -1)
-        case (_, "J") where initial: store.cycleFolder(by: 1)
-        case (_, "K") where initial: store.cycleFolder(by: -1)
-        case (.return, _) where initial: if let request { send(request) }
-        case (_, "e") where initial: if request != nil { focused = .url }
-        case (_, "r") where initial: if request != nil { focused = .name }
-        case (_, "h") where initial: if request != nil { focused = .headers }
-        case (_, "b") where initial: if request?.sendsBody == true { focused = .body }
-        case (_, "m") where initial:
+        switch press.action(in: .navigation, .apiRequests) {
+        case .down: store.cycleRequest(by: 1)
+        case .up: store.cycleRequest(by: -1)
+        case .nextGroup where initial: store.cycleFolder(by: 1)
+        case .previousGroup where initial: store.cycleFolder(by: -1)
+        case .select where initial: if let request { send(request) }
+        case .editURL where initial: if request != nil { focused = .url }
+        case .renameRequest where initial: if request != nil { focused = .name }
+        case .editHeaders where initial: if request != nil { focused = .headers }
+        case .editBody where initial: if request?.sendsBody == true { focused = .body }
+        case .cycleMethod where initial:
             guard let index = selectedIndex, let method = APIRequest.methods.firstIndex(of: store.requests[index].method) else { break }
             store.requests[index].method = APIRequest.methods[(method + 1) % APIRequest.methods.count]
-        case (_, "n") where initial: if let folder = store.requestFolder { create(in: folder) }
-        case (_, "x") where initial:
+        case .newRequest where initial: if let folder = store.requestFolder { create(in: folder) }
+        case .deleteRequest where initial:
             guard let request else { break }
             if armed { delete(request) } else { deleteArmed = true }
         default: return .ignored
@@ -331,22 +339,22 @@ struct APITester: View {
 
     private func responseKey(_ press: KeyPress, yankArmed armed: Yank?) -> KeyPress.Result {
         let initial = press.phase == .down
-        switch (press.key, press.characters) {
-        case (.downArrow, _), (_, "j"): browser.move(by: 1)
-        case (.upArrow, _), (_, "k"): browser.move(by: -1)
-        case (_, "g") where initial: browser.moveToEdge(end: false)
-        case (_, "G") where initial: browser.moveToEdge(end: true)
-        case (.return, _) where initial, (.space, _) where initial: browser.toggle()
-        case (.rightArrow, _), (_, "l"): browser.expand()
-        case (.leftArrow, _), (_, "h"): browser.collapse()
-        case (_, "E") where initial: browser.expandAll()
-        case (_, "C") where initial: browser.collapseAll()
-        case (_, "/") where initial: focused = .search
-        case (_, "n") where initial: browser.nextMatch(by: 1)
-        case (_, "N") where initial: browser.nextMatch(by: -1)
-        case (_, "H") where initial: browser.showingHeaders.toggle()
-        case (_, "y") where initial: yank(.selection, armed: armed)
-        case (_, "Y") where initial: yank(.whole, armed: armed)
+        switch press.action(in: .navigation, .apiResponse) {
+        case .down: browser.move(by: 1)
+        case .up: browser.move(by: -1)
+        case .top where initial: browser.moveToEdge(end: false)
+        case .bottom where initial: browser.moveToEdge(end: true)
+        case .select where initial, .toggleNode where initial: browser.toggle()
+        case .expand: browser.expand()
+        case .collapse: browser.collapse()
+        case .expandAll where initial: browser.expandAll()
+        case .collapseAll where initial: browser.collapseAll()
+        case .search where initial: focused = .search
+        case .nextMatch where initial: browser.nextMatch(by: 1)
+        case .previousMatch where initial: browser.nextMatch(by: -1)
+        case .toggleHeaders where initial: browser.showingHeaders.toggle()
+        case .copy where initial: yank(.selection, armed: armed)
+        case .copyAll where initial: yank(.whole, armed: armed)
         default: return .ignored
         }
         return .handled
@@ -354,7 +362,7 @@ struct APITester: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 10) {
-            KeyHints(hints: [("⌃m", "map")])
+            KeyHints(hints: [(KeyAction.map.label, "map")])
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(store.requestFolders, id: \.self) { path in
@@ -486,7 +494,7 @@ private struct RequestEditor: View {
                     .fieldStyle()
                 Button(action: send) { Chip(active: true, color: Theme.green) { Text(sending ? "SENDING…" : "SEND") } }
                     .buttonStyle(.plain)
-                    .keyboardShortcut(.return, modifiers: .command)
+                    .keyboardShortcut(.sendRequest)
                     .disabled(sending)
             }
             field("HEADERS", "Accept: application/json\nAuthorization: Bearer $(secret get …)", text: $request.headers, lines: 2...6, field: .headers)

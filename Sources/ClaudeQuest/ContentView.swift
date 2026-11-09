@@ -14,6 +14,8 @@ struct ContentView: View {
                 MapView()
             } else if store.page == .apiTester {
                 APITester()
+            } else if store.page == .keybindings {
+                KeybindingsPage()
             } else {
                 sessions
             }
@@ -73,15 +75,15 @@ struct ContentView: View {
         }
         .background {
             Button("") { showSprite.toggle() }
-                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .keyboardShortcut(.sprite)
                 .opacity(0)
                 .allowsHitTesting(false)
             Button("") { store.showingActions.toggle() }
-                .keyboardShortcut("a", modifiers: [.command, .shift])
+                .keyboardShortcut(.actions)
                 .opacity(0)
                 .allowsHitTesting(false)
             Button("") { openDiffFileInIntelliJ() }
-                .keyboardShortcut("o", modifiers: [.command, .shift])
+                .keyboardShortcut(.openInIntelliJ)
                 .opacity(0)
                 .allowsHitTesting(false)
         }
@@ -107,7 +109,7 @@ private struct MainPanel: View {
         content.background {
             if session.terminal != nil {
                 Button("", action: toggleTerminal)
-                    .keyboardShortcut(".", modifiers: .command)
+                    .keyboardShortcut(.terminal)
                     .hidden()
             }
         }
@@ -135,7 +137,7 @@ private struct MainPanel: View {
                         .background(Slant(amount: 6).fill(Theme.green))
                     Text("● " + session.terminalStatus.uppercased()).font(Theme.ui(10, weight: .bold)).foregroundStyle(Theme.green)
                     Spacer()
-                    KeyHints(hints: [("⌃c", "interrupt"), ("⌘.", "back to chat")])
+                    KeyHints(hints: [("⌃c", "interrupt"), (KeyAction.terminal.label, "back to chat")])
                 }
                 .padding(8)
                 TerminalPane(terminal: terminal)
@@ -177,7 +179,8 @@ private struct CommitLog: View {
                             .background(navigator.active && index == cursor ? Theme.cyan.opacity(0.2) : .clear)
                             .overlay(alignment: .trailing) {
                                 if navigator.active && index == cursor {
-                                    KeyHints(hints: [("j k", "commit"), ("g G", "top/end"), ("⏎", "view"), ("y", navigator.yankArmed ? "again to copy hash" : "copy hash")],
+                                    KeyHints(hints: [(KeyAction.label(.down, .up), "commit"), (KeyAction.label(.top, .bottom), "top/end"), (KeyAction.select.label, "view"),
+                                                     (KeyAction.copy.label, navigator.yankArmed ? "again to copy hash" : "copy hash")],
                                              highlighted: navigator.armedKey)
                                         .padding(.horizontal, 10)
                                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
@@ -212,7 +215,7 @@ struct StatusHUD: View {
         .background(LinearGradient(colors: [Theme.deep.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom))
         .background {
             Button("") { promptForWorktree() }
-                .keyboardShortcut("t", modifiers: [.command, .shift])
+                .keyboardShortcut(.newWorktree)
                 .opacity(0)
                 .allowsHitTesting(false)
         }

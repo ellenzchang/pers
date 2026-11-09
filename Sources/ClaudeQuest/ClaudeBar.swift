@@ -39,10 +39,11 @@ struct ClaudeBar: View {
 
     private var shownHints: [(key: String, action: String)] {
         if let prompt = session.prompt, prompt.question == nil {
-            return [("y", "allow")] + (prompt.suggestions.isEmpty ? [] : [("a", "always")]) + [("n", "deny")]
+            return [(KeyAction.allow.label, "allow")] + (prompt.suggestions.isEmpty ? [] : [(KeyAction.allowAlways.label, "always")])
+                + [(KeyAction.deny.label, "deny")]
         }
         if typing { return [("⏎", "send"), ("ESC", "back")] }
-        return hints + (session.isBusy || session.isRunningShell ? [("s", "stop")] : [])
+        return hints + (session.isBusy || session.isRunningShell ? [(KeyAction.stop.label, "stop")] : [])
     }
 
     /// What Claude or the shell said since the last thing the user sent.

@@ -11,8 +11,9 @@ struct DiffView: View {
     private var cursor: Int? { navigator.active || focused ? navigator.line(in: session.diff) : nil }
 
     private var lineHints: [(key: String, action: String)] {
-        let hints = [("j k", "line"), ("g G", "top/end"), ("⏎", "quote"), ("y", navigator.yankArmed ? "again to copy this line" : "copy")]
-        return session.openedCommit == nil ? hints : hints + [("⌫", "back to log")]
+        let hints = [(KeyAction.label(.down, .up), "line"), (KeyAction.label(.top, .bottom), "top/end"), (KeyAction.select.label, "quote"),
+                     (KeyAction.copy.label, navigator.yankArmed ? "again to copy this line" : "copy")]
+        return session.openedCommit == nil ? hints : hints + [(KeyAction.backToLog.label, "back to log")]
     }
 
     var body: some View {
@@ -77,7 +78,7 @@ struct DiffView: View {
             .background(Theme.deep.opacity(0.6))
             .overlay(alignment: .bottomTrailing) {
                 if cursor != nil {
-                    KeyHints(hints: [("J K", "file"), ("⌘O", "IntelliJ")])
+                    KeyHints(hints: [(KeyAction.label(.nextGroup, .previousGroup), "file"), (KeyAction.openInIntelliJ.label, "IntelliJ")])
                         .padding(.horizontal, 10)
                         .padding(.vertical, 2)
                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))

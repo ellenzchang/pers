@@ -47,8 +47,8 @@ struct MessageLog: View {
                         let running = message.id == session.terminalMessageId
                         MessageRow(message: message, text: session.visibleText(of: message),
                                    hovered: hovered, armedKey: hovered ? navigator.armedKey : nil,
-                                   hints: hovered ? navigationHints + (running ? [("⏎", "open terminal")] : []) : [],
-                                   status: running ? session.terminalStatus + " · ⌘. to open" : nil)
+                                   hints: hovered ? navigationHints + (running ? [(KeyAction.select.label, "open terminal")] : []) : [],
+                                   status: running ? session.terminalStatus + " · \(KeyAction.terminal.label) to open" : nil)
                             .id(message.id)
                     }
                     Color.clear.frame(height: 1).id("bottom")
@@ -87,7 +87,7 @@ struct MessageLog: View {
                 Button(action: showLatest) {
                     HStack(spacing: 8) {
                         Text("NEW MESSAGE RECEIVED").foregroundStyle(Theme.navy)
-                        if navigator.active { KeyHints(hints: [("G", "scroll down to see latest")]) }
+                        if navigator.active { KeyHints(hints: [(KeyAction.bottom.label, "scroll down to see latest")]) }
                     }
                     .font(Theme.ui(13, weight: .black))
                     .padding(.horizontal, 18)
@@ -133,8 +133,9 @@ struct MessageLog: View {
     }
 
     private var navigationHints: [(key: String, action: String)] {
-        [("j k", "message"), ("g G", "first/last"), ("f", navigator.forkArmed ? "again to fork from this message" : "fork"),
-         ("y", navigator.yankArmed ? "again to copy this message" : "copy")]
+        [(KeyAction.label(.down, .up), "message"), (KeyAction.label(.top, .bottom), "first/last"),
+         (KeyAction.fork.label, navigator.forkArmed ? "again to fork from this message" : "fork"),
+         (KeyAction.copy.label, navigator.yankArmed ? "again to copy this message" : "copy")]
     }
 
     private func scrollDown(_ proxy: ScrollViewProxy, animated: Bool = true) {
@@ -292,7 +293,7 @@ struct MessageRow: View {
             .background(hovered && highlighted ? Theme.gold.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 4))
             .overlay(alignment: .bottomTrailing) {
                 if hovered {
-                    KeyHints(hints: hints.filter { $0.key != "f" }, highlighted: armedKey)
+                    KeyHints(hints: hints.filter { $0.key != KeyAction.fork.label }, highlighted: armedKey)
                         .padding(.horizontal, 10)
                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                         .padding(.trailing, 18)
@@ -429,50 +430,7 @@ struct DialogueBox: View {
                             .background(DraftFormatting(text: session.draft))
                             .onKeyPress(phases: [.down, .repeat], action: navigate)
                             .onKeyPress(phases: [.down, .repeat], action: choose)
-                            .onKeyPress(.return, phases: .down) { press in
-                                if press.modifiers.contains(.shift) || choosing || navigator.active { return .ignored }
-                                send()
-                                return .handled
-                            }
-                            .onKeyPress(phases: .down) { press in
-                                guard press.modifiers == .control else { return .ignored }
-                                switch (press.key, press.characters) {
-                                case ("c", _), (_, "\u{03}"): interrupt()
-                                case ("r", _), (_, "\u{12}"): session.reset()
-                                case ("l", _), (_, "\u{0C}"): if !session.isBusy { loading = true }
-                                default: return .ignored
-                                }
-                                return .handled
-                            }
-                            .onKeyPress(.tab, phases: .down) { _ in
-                                if navigator.active {
-                                    navigator.active = false
-                                    mode = .terminal
-                                    return .handled
-                                }
-                                guard session.draft.isEmpty, !isAnswering else { return .ignored }
-                                mode = mode == .claude ? .terminal : .claude
-                                return .handled
-                            }
-                            .onKeyPress(keys: [.leftArrow, .rightArrow], phases: [.down, .repeat]) { press in
-                                guard press.modifiers.contains(.shift) else { return .ignored }
-                                scroller.page(press.key == .leftArrow ? -1 : 1, horizontal: true)
-                                return .handled
-                            }
-                            .onKeyPress(.rightArrow, phases: .down) { _ in
-                                guard !navigator.active, let suggestion else { return .ignored }
-                                session.draft += suggestion
-                                return .handled
-                            }
-                            .onKeyPress(keys: [.upArrow, .downArrow], phases: [.down, .repeat]) { press in
-                                guard !choosing, !navigator.active else { return .ignored }
-                                let up = press.key == .upArrow
-                                if press.modifiers.contains(.shift) {
-                                    scroller.page(up ? -1 : 1)
-                                    return .handled
-                                }
-                                return up ? olderHistory() : newerHistory()
-                            }
+                            .onKeyPress(phases: [.down, .repeat], action: input)
                             .onChange(of: session.prompt?.step) {
                                 navigator.promptIndex = 0
                                 navigator.typingAnswer = false
@@ -498,7 +456,8 @@ struct DialogueBox: View {
                 .background(Theme.codeBackground.opacity(isShell && !inTerminal ? 0.9 : 0))
                 .panel(accent: plateColor, dark: inTerminal, padding: 16, morphing: true)
                 .overlay(alignment: .bottomTrailing) {
-                    KeyHints(hints: navigationHints + [("⌘j k", "model"), ("⌘M", "mode"), ("⌘E", "effort"), ("⌃r", "reset"), ("⌃l", "load")])
+                    KeyHints(hints: navigationHints + [(KeyAction.label(.previousModel, .nextModel), "model"), (KeyAction.nextMode.label, "mode"),
+                                                       (KeyAction.nextEffort.label, "effort"), (KeyAction.reset.label, "reset"), (KeyAction.load.label, "load")])
                         .padding(.horizontal, 10)
                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                         .padding(.trailing, 18)
@@ -526,12 +485,13 @@ struct DialogueBox: View {
     }
 
     private var navigationHints: [(key: String, action: String)] {
-        let diffToggle = ("⌘d", session.showingDiff ? "close diff" : "diff")
-        let logToggle = ("⌘l", session.showingLog ? "close log" : "log")
-        let diffControls = [("⌘B", session.diffBase == .unstaged ? "vs main" : "unstaged"), diffToggle, logToggle]
-        let terminal = session.terminal == nil ? [] : [("⌘.", session.showingTerminal ? "type in terminal" : "terminal"), ("⌃c", "stop")]
+        let diffToggle = (KeyAction.toggleDiff.label, session.showingDiff ? "close diff" : "diff")
+        let logToggle = (KeyAction.toggleLog.label, session.showingLog ? "close log" : "log")
+        let diffControls = [(KeyAction.toggleDiffBase.label, session.diffBase == .unstaged ? "vs main" : "unstaged"), diffToggle, logToggle]
+        let terminal = session.terminal == nil ? [] : [(KeyAction.terminal.label, session.showingTerminal ? "type in terminal" : "terminal"),
+                                                       (KeyAction.interrupt.label, "stop")]
         let toggles = terminal + (session.showingDiff ? diffControls : [diffToggle, logToggle])
-        if !navigator.active && isAnswering && navigator.typingAnswer { return [("ESC", "back to options")] + toggles }
+        if !navigator.active && isAnswering && navigator.typingAnswer { return [(KeyAction.navigate.label, "back to options")] + toggles }
         return toggles
     }
 
@@ -544,9 +504,9 @@ struct DialogueBox: View {
     private var menuEntries: [MenuEntry] {
         var entries: [MenuEntry] = []
         if session.isBusy {
-            // ⌘. opens a running terminal command instead; ⌃c still stops it.
+            // The terminal key opens a running terminal command instead; the interrupt key still stops it.
             entries.append(MenuEntry(title: "STOP", index: session.prompt?.question != nil ? 1 : 0, color: Theme.red,
-                                     shortcut: session.terminal == nil ? "." : nil, action: session.stopClaude))
+                                     shortcut: session.terminal == nil ? KeyAction.terminal.keyboardShortcut : nil, action: session.stopClaude))
         }
         if session.isTalking {
             entries.append(MenuEntry(title: "SKIP", index: 1, action: session.skipTyping))
@@ -558,22 +518,48 @@ struct DialogueBox: View {
     private var choosing: Bool { session.prompt != nil && !navigator.typingAnswer && !navigator.active }
 
     private func choose(_ press: KeyPress) -> KeyPress.Result {
-        guard choosing, let prompt = session.prompt, press.key != .escape, press.isPlain else { return .ignored }
+        guard choosing, let prompt = session.prompt, !press.matches(.navigate), press.isPlain else { return .ignored }
         let entries = promptEntries(prompt, session: session, navigator: navigator)
         let index = min(navigator.promptIndex, entries.count - 1)
-        switch (press.key, press.characters) {
-        case (.upArrow, _), (_, "k"): navigator.promptIndex = max(index - 1, 0)
-        case (.downArrow, _), (_, "j"): navigator.promptIndex = min(index + 1, entries.count - 1)
-        case (.return, _): entries[index].action()
+        switch press.action(in: .navigation) {
+        case .up: navigator.promptIndex = max(index - 1, 0)
+        case .down: navigator.promptIndex = min(index + 1, entries.count - 1)
+        case .select: entries[index].action()
         default: break
         }
         return .handled
     }
 
-    /// Esc toggles a vim-like mode where keys move a cursor over the diff and the message log instead of typing.
+    private func input(_ press: KeyPress) -> KeyPress.Result {
+        let initial = press.phase == .down
+        let browsing = choosing || navigator.active
+        switch press.action(in: .chatInput) {
+        case .send where initial && !browsing: send()
+        case .interrupt where initial: interrupt()
+        case .reset where initial: session.reset()
+        case .load where initial: if !session.isBusy { loading = true }
+        case .switchInput where initial && navigator.active:
+            navigator.active = false
+            mode = .terminal
+        case .switchInput where initial && session.draft.isEmpty && !isAnswering: mode = mode == .claude ? .terminal : .claude
+        case .scrollLeft: scroller.page(-1, horizontal: true)
+        case .scrollRight: scroller.page(1, horizontal: true)
+        case .acceptSuggestion where initial && !navigator.active:
+            guard let suggestion else { return .ignored }
+            session.draft += suggestion
+        case .pageUp where !browsing: scroller.page(-1)
+        case .pageDown where !browsing: scroller.page(1)
+        case .olderHistory where !browsing: return olderHistory()
+        case .newerHistory where !browsing: return newerHistory()
+        default: return .ignored
+        }
+        return .handled
+    }
+
+    /// The navigate key toggles a mode where keys move a cursor over the diff and the message log instead of typing.
     private func navigate(_ press: KeyPress) -> KeyPress.Result {
         guard navigator.active else {
-            guard press.key == .escape, press.modifiers.isEmpty else { return .ignored }
+            guard press.matches(.navigate) else { return .ignored }
             if isAnswering && navigator.typingAnswer {
                 navigator.typingAnswer = false
                 return .handled
@@ -583,7 +569,7 @@ struct DialogueBox: View {
             return .handled
         }
         guard press.isPlain else { return .ignored }
-        if press.key == .escape || press.characters == "i" {
+        if press.matches(.back) || press.matches(.type) {
             navigator.active = false
             return .handled
         }
@@ -596,16 +582,16 @@ struct DialogueBox: View {
             return .handled
         }
         let messages = session.boxedMessages
-        switch (press.key, press.characters) {
-        case (.downArrow, _), (_, "j"): navigator.moveMessage(by: 1, in: messages)
-        case (.upArrow, _), (_, "k"): navigator.moveMessage(by: -1, in: messages)
-        case (_, "g"): navigator.setMessage(0, in: messages)
-        case (_, "G"): navigator.jumpToLatest(in: messages)
-        case (.return, _):
+        switch press.action(in: .navigation, .messages) {
+        case .down: navigator.moveMessage(by: 1, in: messages)
+        case .up: navigator.moveMessage(by: -1, in: messages)
+        case .top: navigator.setMessage(0, in: messages)
+        case .bottom: navigator.jumpToLatest(in: messages)
+        case .select:
             guard let message = navigator.message(in: messages), message.id == session.terminalMessageId else { break }
             navigator.active = false
             session.showingTerminal = true
-        case (_, "f") where press.phase == .down:
+        case .fork where press.phase == .down:
             guard let message = navigator.message(in: messages), !session.isTerminal(message) else { break }
             if navigator.forkArmed {
                 store.fork(session, at: message)
@@ -614,7 +600,7 @@ struct DialogueBox: View {
                 navigator.disarm()
                 navigator.forkArmed = true
             }
-        case (_, "y") where press.phase == .down:
+        case .copy where press.phase == .down:
             guard let message = navigator.message(in: messages) else { break }
             if navigator.yankArmed {
                 NSPasteboard.general.clearContents()
@@ -778,7 +764,7 @@ struct KeyHints: View {
 
     var body: some View {
         FlowLayout(spacing: 10, lineSpacing: 4) {
-            ForEach(hints, id: \.key) { hint in
+            ForEach(Array(hints.enumerated()), id: \.offset) { _, hint in
                 HStack(spacing: 4) {
                     Text(hint.key)
                         .foregroundStyle(Theme.navy)
@@ -832,7 +818,7 @@ private struct MenuEntry: Identifiable {
     var title: String
     var index: Int
     var color: Color = Theme.ice
-    var shortcut: KeyEquivalent?
+    var shortcut: KeyboardShortcut?
     var help = ""
     var checked: Bool?
     var action: () -> Void
@@ -932,7 +918,7 @@ private struct LoadData: View {
             .padding(.top, 6)
             .panel(padding: 18, opacity: 1)
             .overlay(alignment: .bottomTrailing) {
-                KeyHints(hints: [("↑ ↓ j k", "choose"), ("⏎", "load"), ("ESC", "close")])
+                KeyHints(hints: [(KeyAction.label(.down, .up), "choose"), (KeyAction.select.label, "load"), ("ESC", "close")])
                     .padding(.horizontal, 10)
                     .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                     .padding(.trailing, 18)
@@ -950,7 +936,7 @@ private struct LoadData: View {
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
-        .onKeyPress(keys: [.upArrow, .downArrow, .return, "j", "k"], phases: [.down, .repeat], action: select)
+        .onKeyPress(phases: [.down, .repeat], action: select)
         .task {
             focused = true
             saves = await Task.detached { SaveData.list() }.value
@@ -964,10 +950,11 @@ private struct LoadData: View {
 
     private func select(_ press: KeyPress) -> KeyPress.Result {
         guard let saves, let save = selectedSave else { return .ignored }
-        switch press.key {
-        case .upArrow, "k": selected = max(selected - 1, 0)
-        case .downArrow, "j": selected = min(selected + 1, saves.count - 1)
-        default: load(save)
+        switch press.action(in: .navigation) {
+        case .up: selected = max(selected - 1, 0)
+        case .down: selected = min(selected + 1, saves.count - 1)
+        case .select: load(save)
+        default: return .ignored
         }
         return .handled
     }
@@ -1042,7 +1029,7 @@ private struct PermissionBox: View {
             .panel(accent: accent, padding: 18)
             .overlay(alignment: .bottomTrailing) {
                 if highlighted != nil {
-                    KeyHints(hints: [("↑ ↓ j k", "choose"), ("⏎", prompt.question?.multiSelect == true ? "check" : "select")])
+                    KeyHints(hints: [(KeyAction.label(.down, .up), "choose"), (KeyAction.select.label, prompt.question?.multiSelect == true ? "check" : "select")])
                         .padding(.horizontal, 10)
                         .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                         .padding(.trailing, 18)
@@ -1135,7 +1122,7 @@ private struct MenuItem: View {
     var title: String
     var index: Int
     var color: Color = Theme.ice
-    var shortcut: KeyEquivalent?
+    var shortcut: KeyboardShortcut?
     var highlighted = false
     var action: () -> Void
     @ViewState private var hovered = false
@@ -1155,14 +1142,7 @@ private struct MenuItem: View {
         .activeShift(isHovered, offset: 8)
         .offset(x: CGFloat(index) * 10)
         .onHover { hovered = $0 }
-        .modifier(OptionalShortcut(key: shortcut))
-    }
-}
-
-private struct OptionalShortcut: ViewModifier {
-    var key: KeyEquivalent?
-    func body(content: Content) -> some View {
-        if let key { content.keyboardShortcut(key, modifiers: .command) } else { content }
+        .keyboardShortcut(shortcut)
     }
 }
 
@@ -1232,7 +1212,7 @@ private struct DraftKeys: NSViewRepresentable {
             guard let session, let view = window?.firstResponder as? NSTextView, view.string == session.draft else { return false }
             let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
             if modifiers == .command, event.charactersIgnoringModifiers == "v" { return paste(into: view, session) }
-            if event.keyCode == 51, onBack() { return true }
+            if let shortcut = Shortcut(event), Keymap.shared.shortcuts(for: .backToLog).contains(shortcut), onBack() { return true }
             let cursor = view.selectedRange()
             guard cursor.length == 0 else { return false }
             let placeholders = Session.placeholderPattern.matches(in: view.string, range: NSRange(location: 0, length: (view.string as NSString).length)).map(\.range)

@@ -1,12 +1,13 @@
 import SwiftUI
 
 enum Page: CaseIterable {
-    case sessions, apiTester
+    case sessions, apiTester, keybindings
 
     var title: String {
         switch self {
         case .sessions: "Claude sessions"
         case .apiTester: "API tester"
+        case .keybindings: "Keybindings & shortcuts"
         }
     }
 }
@@ -31,7 +32,7 @@ struct MapView: View {
             .padding(.bottom, 18)
             .panel(accent: Theme.gold, padding: 18, opacity: 1)
             .overlay(alignment: .bottomTrailing) {
-                KeyHints(hints: [("↑↓ jk", "select"), ("⏎", "go"), ("ESC ⌃m", "back")])
+                KeyHints(hints: [(KeyAction.label(.down, .up), "select"), (KeyAction.select.label, "go"), (KeyAction.label(.back, .map), "back")])
                     .padding(.horizontal, 10)
                     .background(Slant(amount: 6).fill(Theme.deep.opacity(0.9)))
                     .padding(.trailing, 18)
@@ -57,6 +58,9 @@ struct MapView: View {
                 .foregroundStyle(active ? Theme.gold : Theme.dim)
                 .frame(width: 14)
             Text(page.title).foregroundStyle(active ? Theme.gold : Theme.ice)
+            if page == .keybindings {
+                Text(Keymap.shared.preset.title.uppercased()).font(Theme.ui(11, weight: .bold)).foregroundStyle(Theme.dim)
+            }
         }
         .font(Theme.body)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -67,11 +71,11 @@ struct MapView: View {
     private func handle(_ press: KeyPress) -> KeyPress.Result {
         let pages = Page.allCases
         let index = pages.firstIndex(of: selected) ?? 0
-        switch (press.key, press.characters) {
-        case (.escape, _): store.showingMap = false
-        case (.downArrow, _), (_, "j"): selected = pages[min(index + 1, pages.count - 1)]
-        case (.upArrow, _), (_, "k"): selected = pages[max(index - 1, 0)]
-        case (.return, _) where press.phase == .down: open(selected)
+        switch press.action(in: .navigation) {
+        case .back: store.showingMap = false
+        case .down: selected = pages[min(index + 1, pages.count - 1)]
+        case .up: selected = pages[max(index - 1, 0)]
+        case .select where press.phase == .down: open(selected)
         default: return .ignored
         }
         return .handled
