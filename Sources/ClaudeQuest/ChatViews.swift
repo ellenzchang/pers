@@ -47,7 +47,7 @@ struct MessageLog: View {
                         let running = message.id == session.terminalMessageId
                         MessageRow(message: message, text: session.visibleText(of: message),
                                    hovered: hovered, armedKey: hovered ? navigator.armedKey : nil,
-                                   hints: hovered ? navigationHints + (running ? [(KeyAction.select.label, "open terminal")] : []) : [],
+                                   hints: hovered ? navigationHints + (session.hasTerminal(message) ? [(KeyAction.select.label, "open terminal")] : []) : [],
                                    status: running ? session.terminalStatus + " · \(KeyAction.terminal.label) to open" : nil)
                             .id(message.id)
                     }
@@ -506,7 +506,7 @@ struct DialogueBox: View {
         if session.isBusy {
             // The terminal key opens a running terminal command instead; the interrupt key still stops it.
             entries.append(MenuEntry(title: "STOP", index: session.prompt?.question != nil ? 1 : 0, color: Theme.red,
-                                     shortcut: session.terminal == nil ? KeyAction.terminal.keyboardShortcut : nil, action: session.stopClaude))
+                                     shortcut: session.terminal == nil && !session.showingTerminal ? KeyAction.terminal.keyboardShortcut : nil, action: session.stopClaude))
         }
         if session.isTalking {
             entries.append(MenuEntry(title: "SKIP", index: 1, action: session.skipTyping))
@@ -588,9 +588,9 @@ struct DialogueBox: View {
         case .top: navigator.setMessage(0, in: messages)
         case .bottom: navigator.jumpToLatest(in: messages)
         case .select:
-            guard let message = navigator.message(in: messages), message.id == session.terminalMessageId else { break }
+            guard let message = navigator.message(in: messages), session.hasTerminal(message) else { break }
             navigator.active = false
-            session.showingTerminal = true
+            session.openTerminal(message.id)
         case .fork where press.phase == .down:
             guard let message = navigator.message(in: messages), !session.isTerminal(message) else { break }
             if navigator.forkArmed {

@@ -31,10 +31,12 @@ final class ShellTerminal: NSObject, LocalProcessTerminalViewDelegate {
     init(_ command: String, script: String, in directory: String) {
         self.command = command
         // Offscreen it still needs a size; a wide one keeps long lines from wrapping in the chat.
-        view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 1400, height: 600), options: TerminalOptions(scrollback: 10_000))
+        view = LocalProcessTerminalView(frame: NSRect(x: 0, y: 0, width: 1400, height: 600), options: TerminalOptions(scrollback: 10_000, ansi256PaletteStrategy: .xterm))
         super.init()
         view.nativeBackgroundColor = NSColor(Theme.codeBackground)
         view.nativeForegroundColor = NSColor(Theme.text)
+        // The chat draws bright colours like their base ones, and SwiftTerm brightens bold text, so both halves get the same colours.
+        view.installColors((Theme.ansi + Theme.ansi).map(SwiftTerm.Color.init))
         view.processDelegate = self
         view.setProcessOutputHandler { [weak self] in
             Task { @MainActor in self?.scheduleRefresh() }
@@ -188,5 +190,13 @@ private extension ColorRun.Style {
         case .defaultColor, .defaultInvertedColor: break
         }
         bold = attribute.style.contains(.bold)
+    }
+}
+
+private extension SwiftTerm.Color {
+    convenience init(_ color: SwiftUI.Color) {
+        let rgb = NSColor(color).usingColorSpace(.sRGB) ?? .white
+        let component = { (value: CGFloat) in UInt16(max(0, min(1, value)) * 65535) }
+        self.init(red: component(rgb.redComponent), green: component(rgb.greenComponent), blue: component(rgb.blueComponent))
     }
 }

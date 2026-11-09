@@ -107,7 +107,7 @@ private struct MainPanel: View {
 
     var body: some View {
         content.background {
-            if session.terminal != nil {
+            if session.terminal != nil || session.showingTerminal {
                 Button("", action: toggleTerminal)
                     .keyboardShortcut(.terminal)
                     .hidden()
@@ -117,11 +117,9 @@ private struct MainPanel: View {
 
     /// Leaves the terminal only from inside it; from the chat input it goes in, even when the terminal is already open.
     private func toggleTerminal() {
-        guard let terminal = session.terminal else { return }
-        if !session.showingTerminal {
-            session.showingTerminal = true
-        } else if terminal.isFocused {
-            session.showingTerminal = false
+        guard let terminal = session.shownTerminal else { return session.openTerminal() }
+        if terminal.isFocused {
+            session.shownTerminalId = nil
         } else {
             terminal.focus()
         }
@@ -129,15 +127,17 @@ private struct MainPanel: View {
 
     @ViewBuilder
     private var content: some View {
-        if session.showingTerminal, let terminal = session.terminal {
+        if let terminal = session.shownTerminal {
+            let running = terminal === session.terminal
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 10) {
                     Text("TERMINAL").font(Theme.ui(12, weight: .black)).foregroundStyle(Theme.navy)
                         .padding(.horizontal, 10)
                         .background(Slant(amount: 6).fill(Theme.green))
-                    Text("● " + session.terminalStatus.uppercased()).font(Theme.ui(10, weight: .bold)).foregroundStyle(Theme.green)
+                    Text(running ? "● " + session.terminalStatus.uppercased() : "FINISHED")
+                        .font(Theme.ui(10, weight: .bold)).foregroundStyle(running ? Theme.green : Theme.dim)
                     Spacer()
-                    KeyHints(hints: [("⌃c", "interrupt"), (KeyAction.terminal.label, "back to chat")])
+                    KeyHints(hints: (running ? [("⌃c", "interrupt")] : []) + [(KeyAction.terminal.label, "back to chat")])
                 }
                 .padding(8)
                 TerminalPane(terminal: terminal)

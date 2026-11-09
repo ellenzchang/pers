@@ -37,13 +37,18 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var terminal: ShellTerminal? {
         didSet {
             guard terminal == nil else { return }
-            showingTerminal = false
+            if shownTerminalId == terminalMessageId { shownTerminalId = nil }
             terminalMode = .init()
         }
     }
     @Published private(set) var terminalMode = ShellTerminal.Mode()
     private(set) var terminalMessageId: UUID?
-    @Published var showingTerminal = false
+    /// Every command's terminal by its message, kept after it ends so its output can still be opened. Not saved.
+    private var terminals: [UUID: ShellTerminal] = [:]
+    /// The message whose terminal is open in place of the chat.
+    @Published var shownTerminalId: UUID?
+    var showingTerminal: Bool { shownTerminalId != nil }
+    var shownTerminal: ShellTerminal? { shownTerminalId.flatMap { terminals[$0] } }
     var isRunningShell: Bool { terminal != nil }
     private var interrupted = false
     @Published private(set) var resets = 0
@@ -170,7 +175,17 @@ final class Session: ObservableObject, Identifiable {
         showingDiff = false
         showingLog = false
         openedCommit = nil
-        showingTerminal = false
+        shownTerminalId = nil
+    }
+
+    func hasTerminal(_ message: ChatMessage) -> Bool {
+        terminals[message.id] != nil
+    }
+
+    /// Opens a message's terminal, or the running command's.
+    func openTerminal(_ messageId: UUID? = nil) {
+        guard let id = messageId ?? terminalMessageId, terminals[id] != nil else { return }
+        shownTerminalId = id
     }
 
     func toggleDiffBase() {
@@ -200,6 +215,7 @@ final class Session: ObservableObject, Identifiable {
     func reset() {
         stop()
         messages = []
+        terminals = terminals.filter { $0.value === terminal }
         tokens = 0
         resets += 1
         startNewSession()
@@ -415,11 +431,12 @@ final class Session: ObservableObject, Identifiable {
         // Added before any output, so a quiet command still shows that it's running.
         let message = ChatMessage(speaker: .shell, text: "")
         terminalMessageId = message.id
+        terminals[message.id] = terminal
         messages.append(message)
         terminal.onOutput = { [weak self] output, colors, mode in
             guard let self else { return }
             // Programs that read keys can't be used from the chat, so open the terminal for them, once, so ⌘. can still leave.
-            if mode.interactive && !terminalMode.interactive { showingTerminal = true }
+            if mode.interactive && !terminalMode.interactive { shownTerminalId = message.id }
             terminalMode = mode
             if let index = messages.firstIndex(where: { $0.id == message.id }) {
                 messages[index].text = output
@@ -429,6 +446,7 @@ final class Session: ObservableObject, Identifiable {
         terminal.onExit = { [weak self] exitCode in
             guard let self else { return }
             messages.removeAll { $0.id == message.id && $0.text.isEmpty }
+            if !messages.contains(where: { $0.id == message.id }) { terminals[message.id] = nil }
             // Moving folders starts a new Claude session, which would cut off a turn in progress.
             if let cwd = terminal.directory, cwd != directory, !isBusy { directory = cwd }
             if interrupted || exitCode == nil {

@@ -280,13 +280,12 @@ private struct TerminalOutput: View {
 }
 
 private extension ColorRun.Style {
-    /// The 16 basic colours follow the theme. Black is drawn dim, since it would vanish on the dark background.
     var color: Color? {
         if let rgb { return Color(hex: rgb) }
         guard let ansi else { return nil }
         switch ansi {
         case 0..<16:
-            return [Theme.dim, Theme.red, Theme.green, Theme.gold, Theme.cyan, Theme.pink, Theme.aqua, Theme.text][Int(ansi % 8)]
+            return Theme.ansi[Int(ansi % 8)]
         case 16..<232:
             let index = Int(ansi) - 16
             let level = { (value: Int) in UInt32(value == 0 ? 0 : 55 + value * 40) }

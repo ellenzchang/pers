@@ -46,6 +46,8 @@ enum Theme {
     static var amberBottom: Color { pick(0x272115, 0x2E2200, 0x1F1A12, 0x140E00) }
     static var pink: Color { pick(0xF778BA, 0xFF7AB8, 0xBB9AF7, 0xFF4FA3) }
     static var red: Color { pick(0xF85149, 0xFF4D6D, 0xF7768E, 0xFF2E2E) }
+    /// The 8 basic terminal colours, shared by the chat and the opened terminal. Black is drawn dim, since it would vanish on the dark background.
+    static var ansi: [Color] { [dim, red, green, gold, cyan, pink, aqua, text] }
 
     static func ui(_ size: CGFloat = 12, weight: Font.Weight = .heavy) -> Font {
         if isTerminal { return .system(size: size, weight: .regular, design: .monospaced) }
