@@ -176,7 +176,7 @@ enum KeyAction: String, CaseIterable, Identifiable {
         case .toggleDiff: (.app, "Diff", ["⌘d"], ["⌘d"])
         case .toggleDiffBase: (.app, "Diff against main or unstaged", ["⌘B"], ["⌘B"])
         case .toggleLog: (.app, "Git log", ["⌘l"], ["⌘l"])
-        case .terminal: (.app, "Terminal, or stop Claude when none runs", ["⌘."], ["⌘."])
+        case .terminal: (.app, "Terminal, or stop Claude when the tab has none", ["⌘."], ["⌘."])
         case .sprite: (.app, "Show portrait", ["⌘P"], ["⌘P"])
         case .openInIntelliJ: (.app, "Open diff file in IntelliJ", ["⌘O"], ["⌘O"])
         case .sendRequest: (.app, "Send request while editing it", ["⌘⏎"], ["⌘⏎"])

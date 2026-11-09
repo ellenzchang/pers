@@ -488,8 +488,8 @@ struct DialogueBox: View {
         let diffToggle = (KeyAction.toggleDiff.label, session.showingDiff ? "close diff" : "diff")
         let logToggle = (KeyAction.toggleLog.label, session.showingLog ? "close log" : "log")
         let diffControls = [(KeyAction.toggleDiffBase.label, session.diffBase == .unstaged ? "vs main" : "unstaged"), diffToggle, logToggle]
-        let terminal = session.terminal == nil ? [] : [(KeyAction.terminal.label, session.showingTerminal ? "type in terminal" : "terminal"),
-                                                       (KeyAction.interrupt.label, "stop")]
+        let terminal = session.shell == nil ? [] : [(KeyAction.terminal.label, session.showingTerminal ? "type in terminal" : "terminal")]
+            + (session.isRunningShell ? [(KeyAction.interrupt.label, "stop")] : [])
         let toggles = terminal + (session.showingDiff ? diffControls : [diffToggle, logToggle])
         if !navigator.active && isAnswering && navigator.typingAnswer { return [(KeyAction.navigate.label, "back to options")] + toggles }
         return toggles
@@ -506,7 +506,7 @@ struct DialogueBox: View {
         if session.isBusy {
             // The terminal key opens a running terminal command instead; the interrupt key still stops it.
             entries.append(MenuEntry(title: "STOP", index: session.prompt?.question != nil ? 1 : 0, color: Theme.red,
-                                     shortcut: session.terminal == nil && !session.showingTerminal ? KeyAction.terminal.keyboardShortcut : nil, action: session.stopClaude))
+                                     shortcut: session.shell == nil ? KeyAction.terminal.keyboardShortcut : nil, action: session.stopClaude))
         }
         if session.isTalking {
             entries.append(MenuEntry(title: "SKIP", index: 1, action: session.skipTyping))
@@ -590,7 +590,7 @@ struct DialogueBox: View {
         case .select:
             guard let message = navigator.message(in: messages), session.hasTerminal(message) else { break }
             navigator.active = false
-            session.openTerminal(message.id)
+            session.openTerminal(at: message.id)
         case .fork where press.phase == .down:
             guard let message = navigator.message(in: messages), !session.isTerminal(message) else { break }
             if navigator.forkArmed {

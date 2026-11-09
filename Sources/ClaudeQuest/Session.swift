@@ -33,23 +33,18 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var typingId: UUID?
     @Published private(set) var revealed = 0
     @Published private(set) var prompt: PermissionPrompt?
-    /// The running terminal command, and the chat message that shows it.
-    @Published private(set) var terminal: ShellTerminal? {
-        didSet {
-            guard terminal == nil else { return }
-            if shownTerminalId == terminalMessageId { shownTerminalId = nil }
-            terminalMode = .init()
-        }
-    }
+    /// The tab's shell, started by its first terminal command and kept for the next ones.
+    @Published private(set) var shell: ShellTerminal?
     @Published private(set) var terminalMode = ShellTerminal.Mode()
+    /// The running terminal command, and the chat message that shows it.
+    @Published private(set) var runningCommand: String?
     private(set) var terminalMessageId: UUID?
-    /// Every command's terminal by its message, kept after it ends so its output can still be opened. Not saved.
-    private var terminals: [UUID: ShellTerminal] = [:]
-    /// The message whose terminal is open in place of the chat.
-    @Published var shownTerminalId: UUID?
-    var showingTerminal: Bool { shownTerminalId != nil }
-    var shownTerminal: ShellTerminal? { shownTerminalId.flatMap { terminals[$0] } }
-    var isRunningShell: Bool { terminal != nil }
+    /// Where each command starts in the shell's scrollback, so its message can open the terminal there. Not saved.
+    private var commandRows: [UUID: Int] = [:]
+    @Published var showingTerminal = false
+    /// Opened for a program that reads keys, so it closes again when the program ends.
+    private var openedForKeys = false
+    var isRunningShell: Bool { runningCommand != nil }
     private var interrupted = false
     @Published private(set) var resets = 0
     @Published var hasUnread = false
@@ -175,17 +170,23 @@ final class Session: ObservableObject, Identifiable {
         showingDiff = false
         showingLog = false
         openedCommit = nil
-        shownTerminalId = nil
+        showingTerminal = false
     }
 
     func hasTerminal(_ message: ChatMessage) -> Bool {
-        terminals[message.id] != nil
+        commandRows[message.id] != nil
     }
 
-    /// Opens a message's terminal, or the running command's.
-    func openTerminal(_ messageId: UUID? = nil) {
-        guard let id = messageId ?? terminalMessageId, terminals[id] != nil else { return }
-        shownTerminalId = id
+    /// Opens the terminal, scrolled to a command's output when given one.
+    func openTerminal(at messageId: UUID? = nil) {
+        guard let shell else { return }
+        showingTerminal = true
+        openedForKeys = false
+        if let row = messageId.flatMap({ commandRows[$0] }) { shell.scroll(to: row) }
+    }
+
+    func closeShell() {
+        shell?.close()
     }
 
     func toggleDiffBase() {
@@ -215,7 +216,7 @@ final class Session: ObservableObject, Identifiable {
     func reset() {
         stop()
         messages = []
-        terminals = terminals.filter { $0.value === terminal }
+        commandRows = [:]
         tokens = 0
         resets += 1
         startNewSession()
@@ -267,9 +268,9 @@ final class Session: ObservableObject, Identifiable {
     }
 
     func stopTerminal() {
-        guard let terminal else { return }
+        guard isRunningShell, let shell else { return }
         interrupted = true
-        terminal.stop()
+        shell.stop()
     }
 
     func skipTyping() {
@@ -420,43 +421,77 @@ final class Session: ObservableObject, Identifiable {
         return process
     }
 
-    /// Mirrors the CLI's `!` mode, which `claude -p` doesn't support. The trailing OSC 7 reports the
-    /// shell's final directory so a `cd` carries over to the tab. Interactive (`-i`) so .zshrc's aliases,
-    /// functions and PATH are available, like in the user's own terminal. Pagers are off since the chat
-    /// can't scroll them.
+    /// Mirrors the CLI's `!` mode, which `claude -p` doesn't support, in the tab's shell, whose `cd` carries over to the tab.
     private func runShell(_ command: String) {
-        let terminal = ShellTerminal(command, script: "export PAGER=cat GIT_PAGER=cat\n\(command)\nprintf '\\e]7;%s\\a' \"$PWD\"", in: directory)
-        self.terminal = terminal
-        interrupted = false
-        // Added before any output, so a quiet command still shows that it's running.
+        let shell = shell ?? startShell()
+        startCommand(command)
+        shell.send(command + "\r")
+    }
+
+    /// Commands from the chat are shown before the shell reads them, so a quiet command still shows that it's running.
+    /// Ones typed in the opened terminal are shown when they start.
+    private func startCommand(_ command: String) {
         let message = ChatMessage(speaker: .shell, text: "")
         terminalMessageId = message.id
-        terminals[message.id] = terminal
+        runningCommand = command
+        interrupted = false
         messages.append(message)
-        terminal.onOutput = { [weak self] output, colors, mode in
+    }
+
+    private func startShell() -> ShellTerminal {
+        let shell = ShellTerminal(in: directory)
+        self.shell = shell
+        shell.onCommand = { [weak self] command, row in
             guard let self else { return }
+            if !isRunningShell {
+                messages.append(ChatMessage(speaker: .user, text: Self.terminalMarker + command))
+                startCommand(command)
+            }
+            if let id = terminalMessageId { commandRows[id] = row }
+        }
+        shell.onOutput = { [weak self] output, colors, mode in
+            guard let self, let id = terminalMessageId else { return }
             // Programs that read keys can't be used from the chat, so open the terminal for them, once, so ⌘. can still leave.
-            if mode.interactive && !terminalMode.interactive { shownTerminalId = message.id }
+            if mode.interactive && !terminalMode.interactive && !showingTerminal {
+                showingTerminal = true
+                openedForKeys = true
+            }
             terminalMode = mode
-            if let index = messages.firstIndex(where: { $0.id == message.id }) {
+            if let index = messages.firstIndex(where: { $0.id == id }) {
                 messages[index].text = output
                 messages[index].colors = colors
             }
         }
-        terminal.onExit = { [weak self] exitCode in
+        shell.onPrompt = { [weak self] status, cwd in
             guard let self else { return }
-            messages.removeAll { $0.id == message.id && $0.text.isEmpty }
-            if !messages.contains(where: { $0.id == message.id }) { terminals[message.id] = nil }
             // Moving folders starts a new Claude session, which would cut off a turn in progress.
-            if let cwd = terminal.directory, cwd != directory, !isBusy { directory = cwd }
-            if interrupted || exitCode == nil {
-                let index = messages.firstIndex { $0.id == message.id }.map { $0 + 1 } ?? messages.endIndex
-                messages.insert(ChatMessage(speaker: .system, text: "Interrupted."), at: index)
-            }
-            self.terminal = nil
-            terminalMessageId = nil
-            refreshGit()
+            if cwd != directory, !isBusy { directory = cwd }
+            finishCommand(interrupted: status == 130)
         }
+        shell.onExit = { [weak self] in
+            guard let self else { return }
+            finishCommand(interrupted: true)
+            self.shell = nil
+            showingTerminal = false
+            commandRows = [:]
+        }
+        return shell
+    }
+
+    private func finishCommand(interrupted signalled: Bool) {
+        guard let id = terminalMessageId else { return }
+        messages.removeAll { $0.id == id && $0.text.isEmpty }
+        if !messages.contains(where: { $0.id == id }) { commandRows[id] = nil }
+        if interrupted || signalled {
+            let index = messages.firstIndex { $0.id == id }.map { $0 + 1 } ?? messages.endIndex
+            messages.insert(ChatMessage(speaker: .system, text: "Interrupted."), at: index)
+        }
+        if openedForKeys { showingTerminal = false }
+        openedForKeys = false
+        terminalMessageId = nil
+        runningCommand = nil
+        terminalMode = .init()
+        refreshGit()
     }
 
     static func shellProcess(_ script: String, _ args: [String] = [], in directory: String) -> Process {
@@ -482,7 +517,7 @@ final class Session: ObservableObject, Identifiable {
         }
     }
 
-    /// Every terminal command runs in a fresh shell with no history, so thefuck gets the tab's previous command
+    /// thefuck runs in a shell of its own, without the tab's history, so it gets the tab's previous command
     /// through TF_HISTORY instead of `fc`. Its own confirmation needs a tty, so the correction is confirmed with a prompt.
     private func fixLastCommand() {
         let isCommand = { (text: String) in text.hasPrefix("!") || text.hasPrefix(Self.terminalMarker) }
@@ -530,7 +565,7 @@ final class Session: ObservableObject, Identifiable {
 
     /// Sends a line to the running terminal command, such as a passphrase or a confirmation.
     func sendInput(_ text: String) {
-        terminal?.send(terminalMode.wantsKeys && !text.isEmpty ? text : text + "\r")
+        shell?.send(terminalMode.wantsKeys && !text.isEmpty ? text : text + "\r")
     }
 
     /// Shown on the running command's message.
@@ -886,6 +921,7 @@ final class AppStore: ObservableObject {
 
     private func closeTab(_ session: Session) {
         session.stop()
+        session.closeShell()
         if !sessions.contains(where: { $0.id != session.id && $0.directory == session.directory }) {
             runs.filter { $0.directory == session.directory }.forEach(dismiss)
         }

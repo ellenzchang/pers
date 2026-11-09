@@ -58,8 +58,8 @@ private struct OverviewRow: View {
                     if session.hasUnread { tag("NEW") }
                     if session.forkedFrom != nil { tag("FORK") }
                 }
-                if let terminal = session.terminal {
-                    RunLine(name: "❯ \(terminal.command)", status: session.terminalStatus.uppercased(), color: Theme.green,
+                if let command = session.runningCommand {
+                    RunLine(name: "❯ \(command)", status: session.terminalStatus.uppercased(), color: Theme.green,
                             highlighted: highlighted, isActive: true, stopOrDismiss: session.stopTerminal)
                         .contentShape(Rectangle())
                         .onTapGesture(perform: showTerminalMessage)
