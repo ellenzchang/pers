@@ -137,11 +137,7 @@ struct KeybindingsPage: View {
     }
 
     private func marker(_ row: Row) -> some View {
-        let active = rows[selected] == row
-        return Text(active ? "▶" : "○")
-            .font(Theme.body)
-            .foregroundStyle(active ? Theme.gold : Theme.dim)
-            .frame(width: 14)
+        RowMarker(active: rows[selected] == row)
     }
 
     private func handle(_ press: KeyPress) -> KeyPress.Result {

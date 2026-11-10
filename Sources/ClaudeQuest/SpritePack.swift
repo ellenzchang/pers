@@ -1,16 +1,20 @@
 import AppKit
 
-/// A layered character sprite (outfit base + eye and mouth overlays) as produced by `scripts/fetch_sprites.py`.
+/// A portrait set from a folder, in one of two layouts:
+/// - frames: `idle.png`, optionally `thinking.png`, `talking.png` and `worried.png`, plus `<mood>-blink.png` and `talking-open.png`;
+/// - layered: a `manifest.json` listing outfit images with eye and mouth overlays, for sets with several outfits.
 @MainActor
 final class SpritePack {
-    struct Outfit: Decodable {
-        var file: String
-        var set: String
+    enum Picture {
+        case image(NSImage)
+        case layers([Layer])
     }
 
-    struct Offset: Decodable {
-        var x: CGFloat
-        var y: CGFloat
+    struct Layer {
+        var image: NSImage
+        var origin: CGPoint
+        /// Size in the set's original pixel space, which the manifest's offsets are expressed in.
+        var size: CGSize
     }
 
     struct Manifest: Decodable {
@@ -19,13 +23,16 @@ final class SpritePack {
         var mouths: [String: [String]]
         var eyesOffset: Offset
         var mouthsOffset: Offset
-    }
 
-    struct Layer {
-        var image: NSImage
-        var origin: CGPoint
-        /// Size in the pack's original pixel space, which the offsets are expressed in.
-        var size: CGSize
+        struct Outfit: Decodable {
+            var file: String
+            var set: String
+        }
+
+        struct Offset: Decodable {
+            var x: CGFloat
+            var y: CGFloat
+        }
     }
 
     private struct Loaded {
@@ -33,36 +40,34 @@ final class SpritePack {
         var size: CGSize
     }
 
-    /// Packs by folder name. Bundled packs come first; Application Support holds extra packs added after building.
-    static let installed: [String: SpritePack] = {
-        let roots = [
-            Bundle.main.resourceURL?.appendingPathComponent("Sprites", isDirectory: true),
-            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("ClaudeQuest/Sprites", isDirectory: true),
-        ].compactMap { $0 }
-        let directories = roots.flatMap { root in
-            (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-        }
-        return directories.reduce(into: [:]) { packs, directory in
-            if packs[directory.lastPathComponent] == nil { packs[directory.lastPathComponent] = SpritePack(directory: directory) }
-        }
-    }()
-
-    let manifest: Manifest
+    let name: String
     private let directory: URL
-    private var cache: [String: Loaded] = [:]
+    private let manifest: Manifest?
+    private var cache: [String: Loaded?] = [:]
 
     init?(directory: URL) {
-        guard let data = try? Data(contentsOf: directory.appendingPathComponent("manifest.json")),
-              let manifest = try? JSONDecoder().decode(Manifest.self, from: data),
-              !manifest.outfits.isEmpty else { return nil }
+        let manifest = (try? Data(contentsOf: directory.appendingPathComponent("manifest.json")))
+            .flatMap { try? JSONDecoder().decode(Manifest.self, from: $0) }
+            .flatMap { $0.outfits.isEmpty ? nil : $0 }
+        guard manifest != nil || FileManager.default.fileExists(atPath: directory.appendingPathComponent("idle.png").path) else { return nil }
+        name = directory.lastPathComponent
         self.directory = directory
         self.manifest = manifest
     }
 
-    /// Layers bottom to top. `face` is an expression code like "F01"; `eyes` and `mouth` are frame numbers 1–3.
-    func layers(outfit: Int, face: String, eyes: Int, mouth: Int) -> [Layer] {
+    /// `eyes` and `mouth` are frames 1–3: open, half and closed eyes; closed, half and open mouth.
+    func picture(mood: Mood, outfit: Int, eyes: Int, mouth: Int) -> Picture? {
+        if let manifest { return .layers(layers(manifest, mood: mood, outfit: outfit, eyes: eyes, mouth: mouth)) }
+        let frame = mouth > 1 ? "-open" : eyes > 1 ? "-blink" : ""
+        // A missing frame falls back to its mood's still image, and a missing mood to idle.
+        return [mood.rawValue + frame, mood.rawValue, "idle" + frame, "idle"].lazy
+            .compactMap { self.image($0 + ".png", downscaled: false) }.first
+            .map { .image($0.image) }
+    }
+
+    private func layers(_ manifest: Manifest, mood: Mood, outfit: Int, eyes: Int, mouth: Int) -> [Layer] {
         let outfit = manifest.outfits[outfit % manifest.outfits.count]
+        let face = mood.face
         return [
             image(outfit.file).map { Layer(image: $0.image, origin: .zero, size: $0.size) },
             overlay(manifest.eyes, set: outfit.set, face: face, suffix: "_E\(eyes).png")
@@ -79,14 +84,19 @@ final class SpritePack {
         let file = files.first { $0.contains("_\(face)_") && $0.hasSuffix(suffix) }
             ?? files.first { $0.contains("_\(face)_") }
             ?? files.first { $0.contains("_F00_") && $0.hasSuffix(suffix) }
-        return file.flatMap(image)
+        return file.flatMap { image($0) }
     }
 
     /// Layers are downscaled once on load; redrawing full 2048px textures every animation frame is costly.
-    private func image(_ relativePath: String) -> Loaded? {
+    private func image(_ relativePath: String, downscaled: Bool = true) -> Loaded? {
         if let cached = cache[relativePath] { return cached }
-        guard let source = NSImage(contentsOf: directory.appendingPathComponent(relativePath)),
-              let rep = source.representations.first, rep.pixelsWide > 0 else { return nil }
+        let loaded = NSImage(contentsOf: directory.appendingPathComponent(relativePath)).flatMap { downscaled ? halved($0) : Loaded(image: $0, size: $0.size) }
+        cache[relativePath] = .some(loaded)
+        return loaded
+    }
+
+    private func halved(_ source: NSImage) -> Loaded? {
+        guard let rep = source.representations.first, rep.pixelsWide > 0 else { return nil }
         let size = CGSize(width: rep.pixelsWide, height: rep.pixelsHigh)
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide / 2, pixelsHigh: rep.pixelsHigh / 2,
                                             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -98,8 +108,53 @@ final class SpritePack {
         NSGraphicsContext.restoreGraphicsState()
         let image = NSImage(size: bitmap.size)
         image.addRepresentation(bitmap)
-        let loaded = Loaded(image: image, size: size)
-        cache[relativePath] = loaded
-        return loaded
+        return Loaded(image: image, size: size)
+    }
+}
+
+private extension Mood {
+    /// Expression codes in layered sets: F01 soft smile, F02 focused, F00 neutral, F06 sad.
+    var face: String {
+        switch self {
+        case .idle: "F01"
+        case .thinking: "F02"
+        case .talking: "F00"
+        case .worried: "F06"
+        }
+    }
+}
+
+/// The sprite folders in Application Support and which one each model uses, kept in UserDefaults.
+@MainActor
+final class SpriteSettings: ObservableObject {
+    static let shared = SpriteSettings()
+    static let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("ClaudeQuest/Sprites", isDirectory: true)
+    private static let choicesKey = "spritePacks"
+
+    @Published private(set) var packs: [SpritePack] = []
+    @Published private var choices: [String: String] {
+        didSet { UserDefaults.standard.set(choices, forKey: Self.choicesKey) }
+    }
+
+    private init() {
+        choices = UserDefaults.standard.dictionary(forKey: Self.choicesKey) as? [String: String] ?? [:]
+        reload()
+    }
+
+    /// Rescans the folder, so sets added while the app runs show up.
+    func reload() {
+        let directories = (try? FileManager.default.contentsOfDirectory(at: Self.folder, includingPropertiesForKeys: nil)) ?? []
+        packs = directories.compactMap(SpritePack.init(directory:))
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Nil means the built-in pixel sprite, which is also used when the chosen folder is gone.
+    func pack(for model: ClaudeModel) -> SpritePack? {
+        packs.first { $0.name == choices[model.rawValue] }
+    }
+
+    func choose(_ pack: SpritePack?, for model: ClaudeModel) {
+        choices[model.rawValue] = pack?.name
     }
 }

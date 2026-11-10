@@ -1,13 +1,14 @@
 import SwiftUI
 
 enum Page: CaseIterable {
-    case sessions, apiTester, keybindings
+    case sessions, apiTester, keybindings, settings
 
     var title: String {
         switch self {
         case .sessions: "Claude sessions"
         case .apiTester: "API tester"
         case .keybindings: "Keybindings & shortcuts"
+        case .settings: "Settings"
         }
     }
 }

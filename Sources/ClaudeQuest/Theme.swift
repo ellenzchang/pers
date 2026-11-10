@@ -277,6 +277,18 @@ struct Chip<Label: View>: View {
     }
 }
 
+/// The keyboard cursor beside a settings row.
+struct RowMarker: View {
+    var active: Bool
+
+    var body: some View {
+        Text(active ? "▶" : "○")
+            .font(Theme.body)
+            .foregroundStyle(active ? Theme.gold : Theme.dim)
+            .frame(width: 14)
+    }
+}
+
 /// The white plate behind an active row or option; in the phantom theme it is a shifting shard with a red one kicked out behind it.
 struct ActiveBackdrop: View {
     var active: Bool

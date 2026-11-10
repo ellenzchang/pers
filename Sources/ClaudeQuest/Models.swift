@@ -5,14 +5,6 @@ enum ClaudeModel: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
     var label: String { rawValue.uppercased() }
 
-    var spritePack: String {
-        switch self {
-        case .opus: "opus"
-        case .sonnet: "sonnet"
-        case .haiku: "haiku"
-        }
-    }
-
     /// Saved tabs from when Fable was an option still decode instead of discarding the whole save.
     init(from decoder: Decoder) throws {
         self = ClaudeModel(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .sonnet

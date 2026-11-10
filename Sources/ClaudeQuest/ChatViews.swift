@@ -367,6 +367,7 @@ struct DialogueBox: View {
     @ViewState private var mode = ClaudeBar.Mode.claude
     @ViewState private var exitArmed = false
     @AppStorage(Self.showSpriteKey) private var showSprite = false
+    @ObservedObject private var sprites = SpriteSettings.shared
 
     static let showSpriteKey = "showSprite"
     var body: some View {
@@ -374,7 +375,7 @@ struct DialogueBox: View {
             if showSprite {
                 VStack(spacing: -6) {
                     // The bust is taller than its layout slot so it rises over the log, like a VN character.
-                    Portrait(mood: mood, outfit: session.outfit, pack: SpritePack.installed[session.model.spritePack])
+                    Portrait(mood: mood, outfit: session.outfit, model: session.model, pack: sprites.pack(for: session.model))
                         .frame(width: 210, height: 248)
                         .frame(width: 210, height: navigator.active ? 56 : 150, alignment: .bottom)
                         .allowsHitTesting(false)
@@ -779,7 +780,7 @@ struct KeyHints: View {
     }
 }
 
-private struct FlowLayout: Layout {
+struct FlowLayout: Layout {
     var spacing: CGFloat
     var lineSpacing: CGFloat
 

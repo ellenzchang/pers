@@ -16,6 +16,8 @@ struct ContentView: View {
                 APITester()
             } else if store.page == .keybindings {
                 KeybindingsPage()
+            } else if store.page == .settings {
+                SettingsPage()
             } else {
                 sessions
             }
