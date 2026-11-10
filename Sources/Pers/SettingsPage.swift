@@ -74,9 +74,9 @@ struct SettingsPage: View {
             RowMarker(active: rows[selected] == .sprite(model))
             Text(model.label).font(Theme.body).foregroundStyle(Theme.ice).frame(width: 70, alignment: .leading)
             FlowLayout(spacing: 8, lineSpacing: 6) {
-                option(PixelSprite.of(model).name, active: chosen == nil) { sprites.choose(nil, for: model) }
+                option(PixelSprite.of(model).name, active: chosen == nil) { choose(nil, for: model) }
                 ForEach(sprites.packs, id: \.name) { pack in
-                    option(pack.name, active: chosen === pack) { sprites.choose(pack, for: model) }
+                    option(pack.name, active: chosen === pack) { choose(pack, for: model) }
                 }
             }
         }
@@ -144,6 +144,11 @@ struct SettingsPage: View {
         let options: [SpritePack?] = [nil] + sprites.packs
         let index = options.firstIndex { $0 === sprites.pack(for: model) } ?? 0
         sprites.choose(options[(index + 1) % options.count], for: model)
+    }
+
+    private func choose(_ pack: SpritePack?, for model: ClaudeModel) {
+        selected = rows.firstIndex(of: .sprite(model)) ?? selected
+        sprites.choose(pack, for: model)
     }
 
     private func openFolder() {
