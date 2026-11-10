@@ -64,7 +64,7 @@ final class ShellTerminal: NSObject, TerminalViewDelegate, LocalProcessDelegate 
     /// Startup files that load the user's own, then add the hooks that mark commands. Pagers are off since the chat
     /// can't scroll them.
     private static let integration: String = {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("claude-quest-zsh")
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("pers-zsh")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let load = { (file: String) in "ZDOTDIR=$CQ_USER_ZDOTDIR\n[[ -f $ZDOTDIR/\(file) ]] && source $ZDOTDIR/\(file)\n" }
         let files = [

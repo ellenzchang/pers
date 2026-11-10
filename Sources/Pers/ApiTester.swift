@@ -176,7 +176,7 @@ extension AppStore {
 
     private var requestsPrompt: String {
         """
-        You're working in Claude Quest's API tester. Its saved requests are in \(Self.requestsURL.path): a JSON array of \
+        You're working in Pers's API tester. Its saved requests are in \(Self.requestsURL.path): a JSON array of \
         objects with "id" (a UUID string), "repo", "name", "method", "url", "headers" (newline-separated "Name: value" lines) \
         and "body" (a string). Requests are grouped into folders by "repo", the absolute path of a repo's main checkout; the \
         open folder is \(requestFolder ?? requestSession.repoPath). To create or change requests, edit that file and keep every \

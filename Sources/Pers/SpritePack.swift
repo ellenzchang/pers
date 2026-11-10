@@ -129,7 +129,7 @@ private extension Mood {
 final class SpriteSettings: ObservableObject {
     static let shared = SpriteSettings()
     static let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("ClaudeQuest/Sprites", isDirectory: true)
+        .appendingPathComponent("Pers/Sprites", isDirectory: true)
     private static let choicesKey = "spritePacks"
 
     @Published private(set) var packs: [SpritePack] = []

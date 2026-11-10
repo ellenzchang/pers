@@ -1,11 +1,11 @@
 ---
 name: pers-action
-description: Use when the user wants to add, create, or update a Claude Quest action for the repo they are working in, e.g. "add a pers action to run this", "add a claude-quest action", "make an action for the build", "save this command in claude quest".
+description: Use when the user wants to add, create, or update a Pers action for the repo they are working in, e.g. "add a pers action to run this", "make an action for the build", "save this command in pers".
 ---
 
-# Claude Quest actions
+# Pers actions
 
-Claude Quest (the macOS app) keeps saved shell commands, called actions, in `~/Library/Application Support/ClaudeQuest/actions.json`, a JSON array. The app watches the file and reloads it, so an action added here shows up in the ACTIONS panel (⇧⌘A) of a running app without a restart.
+Pers (the macOS app) keeps saved shell commands, called actions, in `~/Library/Application Support/Pers/actions.json`, a JSON array. The app watches the file and reloads it, so an action added here shows up in the ACTIONS panel (⇧⌘A) of a running app without a restart.
 
 ## Action fields
 

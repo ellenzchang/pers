@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClaudeQuest",
+    name: "Pers",
     platforms: [.macOS("15.0")],
     dependencies: [
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.2.0")
     ],
     targets: [
-        .executableTarget(name: "ClaudeQuest", dependencies: ["SwiftTerm"], path: "Sources/ClaudeQuest")
+        .executableTarget(name: "Pers", dependencies: ["SwiftTerm"], path: "Sources/Pers")
     ]
 )

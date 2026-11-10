@@ -2,13 +2,13 @@ import SwiftUI
 import AppKit
 
 @main
-struct ClaudeQuestApp: App {
+struct PersApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @StateObject private var store = AppStore()
     @ObservedObject private var keymap = Keymap.shared
 
     var body: some Scene {
-        WindowGroup("Claude Quest") {
+        WindowGroup("Pers") {
             ContentView()
                 .environmentObject(store)
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in

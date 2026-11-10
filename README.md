@@ -1,4 +1,4 @@
-# Claude Quest
+# Pers
 
 A macOS app that wraps the `claude` CLI in a game-style interface: tabs per repo and worktree, a chat with a portrait that reacts to what Claude is doing, a built-in diff and git log, a terminal, saved actions and an API tester.
 
@@ -8,10 +8,10 @@ Requirements: macOS 15 or later, a Swift 5.9+ toolchain (Xcode or the command li
 
 ```sh
 ./build.sh
-open "Claude Quest.app"
+open "Pers.app"
 ```
 
-`build.sh` runs `swift build -c release` and assembles `Claude Quest.app` in the repo root. To run without packaging, use `swift run`.
+`build.sh` runs `swift build -c release` and assembles `Pers.app` in the repo root. To run without packaging, use `swift run`.
 
 ## Sprites
 
@@ -19,7 +19,7 @@ The portrait beside the chat shows a pixel-art party member for each model: a ma
 
 ### Using your own sprites
 
-1. Open the map (⌃M), go to **Settings** and choose **Open sprites folder**. This opens `~/Library/Application Support/ClaudeQuest/Sprites/`.
+1. Open the map (⌃M), go to **Settings** and choose **Open sprites folder**. This opens `~/Library/Application Support/Pers/Sprites/`.
 2. Add one folder per sprite set. The folder name is the set's name in Settings.
 3. Back in Settings, pick the set for each model. The preview cycles through its moods.
 
@@ -59,9 +59,9 @@ A set can instead hold several outfits that share face overlays. Each Claude ses
 - Each outfit uses the overlays listed under its `set`, or under `general`.
 - Overlay names contain an expression code between underscores: `_F01_` idle, `_F02_` thinking, `_F00_` talking, `_F06_` worried. They end in `_E1`–`_E3` (eyes open, half, closed) or `_M1`–`_M3` (mouth closed, half, open). Missing expressions fall back to `F00`.
 
-## Claude Quest actions
+## Pers actions
 
-Actions are saved shell commands (build, run a server, deploy) shown in the ACTIONS panel (⌘⇧A with the Vim preset, ⌘I with the video game preset). They live in `~/Library/Application Support/ClaudeQuest/actions.json`, which the app watches, so edits appear in a running app.
+Actions are saved shell commands (build, run a server, deploy) shown in the ACTIONS panel (⌘⇧A with the Vim preset, ⌘I with the video game preset). They live in `~/Library/Application Support/Pers/actions.json`, which the app watches, so edits appear in a running app.
 
 The repo ships a Claude Code skill, `pers-action`, in `.claude/skills/pers-action/`. Ask Claude in any repo to "add a pers action to run this" and it reads the repo, drafts the action, shows it for your approval and writes it to `actions.json`.
 
