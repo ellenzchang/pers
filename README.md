@@ -15,7 +15,7 @@ open "Pers.app"
 
 ## Sprites
 
-The portrait beside the chat shows a pixel-art party member for each model: a mage for Opus, a bard for Sonnet and a ranger for Haiku. Each has idle, thinking, talking and worried faces, blinks, and wears a random outfit colour per session. Toggle the portrait with ⌘P or in Settings.
+The portrait beside the chat shows a pixel-art party member for each model: a wizard penguin for Opus, a blue jay bard for Sonnet and a sparrow ranger for Haiku. Each has idle, thinking, talking and worried faces, blinks, and wears a random outfit colour per session. Toggle the portrait with ⌘P or in Settings.
 
 ### Using your own sprites
 

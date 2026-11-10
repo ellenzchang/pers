@@ -7,6 +7,7 @@ enum Mood: String, CaseIterable {
 
 /// Original pixel-art party members drawn from character maps, so they scale crisply at any size.
 /// Faces are drawn over the map, so every character keeps its face in the same place.
+/// The birds recolour the mouth: `m` matches the face so only an open beak (`o`) shows.
 struct PixelSprite {
     var name: String
     var rows: [String]
@@ -16,9 +17,9 @@ struct PixelSprite {
 
     static func of(_ model: ClaudeModel) -> PixelSprite {
         switch model {
-        case .opus: mage
-        case .sonnet: bard
-        case .haiku: ranger
+        case .opus: penguin
+        case .sonnet: blueJay
+        case .haiku: sparrow
         }
     }
 
@@ -77,88 +78,88 @@ struct PixelSprite {
         "c": 0xFF8FA8, "m": 0x7A2E3A, "o": 0xE0606E, "d": 0x9FE8FF,
     ]
 
-    static let mage = PixelSprite(
-        name: "Pixel mage",
+    static let penguin = PixelSprite(
+        name: "Pixel penguin",
         rows: [
-            "....................kk..........",
-            "...................kaak.........",
-            "..................kaaAk.........",
-            ".................kaaaAk.........",
-            "................kaaaaAk.........",
-            "...............kaaaaaAAk........",
-            "..............kaaasaaaAk........",
-            ".............kaaasssaaAAk.......",
-            "............kaaaaasaaaaAk.......",
-            "........kkkkttttttttttttkk......",
-            "....kkkkaaaaTTTTTTTTTTTTaakk....",
-            "...kAAAAAAAAAAAAAAAAAAAAAAAAk...",
-            "....kkkkkkkkkkkkkkkkkkkkkkkk....",
-            "....khhkhhffffffffffffhhkhhk....",
-            "....khhkhffffffffffffffhkhhk....",
-            "....khhkffffffffffffffffkhhk....",
-            "....khhkffffffffffffffffkhhk....",
-            "....khhkffffffffffffffffkhhk....",
-            "....khhkffffffffffffffffkhhk....",
-            "....khHkffffffffffffffffkHhk....",
-            "....khHkkFffffffffffffFkkHhk....",
-            "....khHk.kFFffffffffFFk.kHhk....",
-            "....khHk..kkFFffffFFkk..kHhk....",
-            "....kHHk....kkFFFFkk....kHHk....",
-            "....kkkkkaaaakttttkaaaakkkkk....",
-            "...kaaaaaaaaakttttkaaaaaaaaak...",
-            "..kaaaaaaaAAAAkttkAAAAaaaaaaak..",
-            ".kaaaaaaaAAAAAAkkAAAAAAaaaaaaak.",
-            ".kaaaaaaAAAAAAAssAAAAAAAaaaaaak.",
-            ".kaaaaaaAAAAAAAttAAAAAAAaaaaaak.",
-            ".kaaaaaaAAAAAAAAAAAAAAAAaaaaaak.",
-            ".kaaaaaaAAAAAAAAAAAAAAAAaaaaaak.",
+            "..........................kk....",
+            "........................kkAk....",
+            "....................kkkkaAk.....",
+            "..................kkaaaaAk......",
+            ".................kaaaaaAAk......",
+            "................kaasaaaAAk......",
+            "...............kaasssaaAAk......",
+            "..............kaaaasaaaaAk......",
+            ".............kaaaaaaaaaaAAk.....",
+            "...........kkttttttttttttttkk...",
+            "......kkkkaaTTTTTTTTTTTTTTaakkk.",
+            "..kkkkAAAAAAAAAAAAAAAAAAAAAAAAkk",
+            "...kkkkkkkkkkkkkkkkkkkkkkkkkkkk.",
+            "....kPSPPPPPPPPPPPPPPPPPPSPk....",
+            "...kPSPPWWWWWPPPPPPWWWWWPPSPk...",
+            "...kPPPWWWWWWWPPPPWWWWWWWPPPk...",
+            "...kPPPWWWWWWWWPPWWWWWWWWPPPk...",
+            "...kPPPWWWWWWWWWWWWWWWWWWPPPk...",
+            "...kPPWWWWWWWWWOOWWWWWWWWWPPk...",
+            "...kPPWWWWWWWWOOOOWWWWWWWWPPk...",
+            "...kPPWWWWWWWWWWWWWWWWWWWWPPk...",
+            "..kPPPWWWWWWWWWWWWWWWWWWWWPPPk..",
+            "..kPPPWWWWWWWWWWWWWWWWWWWWPPPk..",
+            "..kaakPPWWWWWWWWWWWWWWWWPPkaak..",
+            ".kaaakPPPWWWWWWWWWWWWWWPPPkaaak.",
+            ".kaaAkPPLWWWWWWWWWWWWWWLPPkAaak.",
+            "kaaaAkPPLWWWWWWWWWWWWWWLPPkAaaak",
+            "kaaaAkPPLWWWWWWWWWWWWWWLPPkAaaak",
+            "kaaAAAkPPWWWWWWWWWWWWWWPPkAAAaak",
+            "kaaAAAkPPWWWWWWWWWWWWWWPPkAAAaak",
+            "kaaAAAkPPWWWWWWWWWWWWWWPPkAAAaak",
+            "kaaAAAkPPWWWWWWWWWWWWWWPPkAAAaak",
         ],
-        colors: ["h": 0xDCE6F5, "H": 0xA9B6CC, "t": 0xFFD866, "T": 0xC9961A, "s": 0xFFF3B0],
-        outfits: [(0x2E64D8, 0x1B3F94), (0x7A4FD0, 0x4E2F94), (0xC8324A, 0x8A1F32)]
+        colors: ["P": 0x2E2B3A, "S": 0x55506A, "L": 0x45405A, "W": 0xF6F2EA, "O": 0xF2A65A, "m": 0xF6F2EA, "o": 0xC27A3E, "c": 0xF3A3B8, "t": 0xFFD866, "T": 0xC9961A, "s": 0xFFF3B0],
+        outfits: [(0x3B4FC4, 0x243282), (0x7A4FD0, 0x4E2F94), (0x1F8A8A, 0x135C5C)]
     )
 
-    static let bard = PixelSprite(
-        name: "Pixel bard",
+    static let blueJay = PixelSprite(
+        name: "Pixel blue jay",
         rows: [
-            "................................",
-            "........................k.......",
-            ".......................ksk......",
-            "......................ksk.......",
-            "..........kkkkkkkkkkksk.........",
-            "........kkaaaaaaaaaaskkk........",
-            "......kkaaaaaaaaaaaaaaaakk......",
-            ".....kaaaaaaaaaaaaaaaaaaaakk....",
-            "....kaaaaaaaaaaaaaaaaaaaaaaak...",
-            "....kAAaaaaaaaaaaaaaaaaaaaAAk...",
-            "....kkAAAAAAAAAAAAAAAAAAAAAkk...",
-            "....khhhhhhhhhhhhhhhhhhhhhhk....",
-            "....khhhhhhhhhhhhhhhhhhhhhhk....",
-            "....khhhhhhhhhhhhhhhhhhhhhhk....",
-            "....khhkfhhffhffffhffhhfkhhk....",
-            "....khhkffffffffffffffffkhhk....",
-            "....khhkffffffffffffffffkhhk....",
-            "....khhkffffffffffffffffkhhk....",
-            "....khhkffffffffffffffffkhhk....",
-            "....khHkffffffffffffffffkHhk....",
-            "....khHkkFffffffffffffFkkHhk....",
-            "....kHHk.kFFffffffffFFk.kHHk....",
-            ".....kk...kkFFffffFFkk...kk.....",
-            "............kkFFFFkk............",
-            "....kkbkkkkkttttttttkkkkkkkk....",
-            "...kaabBaaaktTtTTtTtkaaaaaaak...",
-            "..kaaaabBaaaktTttTtkaaaaaaaaak..",
-            ".kaaaaaabBaaAkttttkAaaaaaaaaaak.",
-            ".kaaaaaaabBAAAkkkkAAAaaaaaaaaak.",
-            ".kaaaaaaaabBAAAssAAAAAaaaaaaaak.",
-            ".kaaaaaaaaAbBAAAAAAAAAaaaaaaaak.",
-            ".kaaaaaaaaAAbBAAAAAAAAaaaaaaaak.",
+            "......kk........................",
+            ".....kbbk.......................",
+            ".....kbbbk......................",
+            "......kbbbkk....................",
+            "......kbbbbbkk..................",
+            ".......kbbbbbbkkkkkkkk..........",
+            "........kbbbbbbbbbbbbbkk........",
+            "......kkbbbbbbbbbbbbbbbbkk......",
+            ".....kbbbbbbbbbbbbbbbbbbbbk.....",
+            "....kbbbbbbbbbbbbbbbbbbbbbbk....",
+            "....kbbBbbbbbbbbbbbbbbbbbBbk....",
+            "...kbbBbbbbbbbbbbbbbbbbbbBbbk...",
+            "...kbbBbbbbbbbbbbbbbbbbbbBbbk...",
+            "...kbBbbbbbbbbbbbbbbbbbbbbBbk...",
+            "...kbBnWWWWWWWWWWWWWWWWWWnBbk...",
+            "...kbBnWWWWWWWWWWWWWWWWWWnBbk...",
+            "...kbBnWWWWWWWWWWWWWWWWWWnBbk...",
+            "...kbBnWWWWWWWWWWWWWWWWWWnBbk...",
+            "...kbbnWWWWWWWWggWWWWWWWWnbbk...",
+            "...kbbnWWWWWWWggggWWWWWWWnkkk...",
+            "...kbbnnWWWWWWWWWWWWWWWWnkssk...",
+            "....kbbnnWWWWWWWWWWWWWWnkLLk....",
+            "....kbbbnnnnnnnnnnnnnnnkLLkk....",
+            "....kaaakbWWWWWssWWWWWkLLkak....",
+            "...kaaaaakbWWWWWWWWWWkLLkaaak...",
+            "..kaaaaAAkbWWWWWWkkkkkkAAaaaak..",
+            ".kaaaaAAAkbWWWWWkllllllkAAaaaak.",
+            ".kaaaaAAAkbWWWWkllllllllkAaaaak.",
+            "kaaaaaAAAAkbWWWklllnnlllkAaaaaak",
+            "kaaaaaAAAAkbWWWklllnnlllkAaaaaak",
+            "kaaaaaAAAAkbWWWkLllllllLkAaaaaak",
+            "kaaaaaAAAAkbWWWkLLllllLLkAaaaaak",
         ],
-        colors: ["h": 0x8A5430, "H": 0x5A3218, "t": 0xF4F1E8, "T": 0xC8C4D0, "s": 0xFFD866, "b": 0x6A3E20, "B": 0xA8703E],
-        outfits: [(0x2AA889, 0x1B7560), (0xD0507A, 0x963456), (0xE09A2A, 0xA86A14)]
+        colors: ["b": 0x4A86D8, "B": 0x2C5AA8, "W": 0xF0F4FA, "n": 0x1A1A2A, "g": 0x3A3A48, "m": 0xF0F4FA, "o": 0x3A3A48, "s": 0xFFD866, "l": 0xC88A48, "L": 0x8A5A2A],
+        outfits: [(0xD0507A, 0x963456), (0xE0A030, 0xA86A14), (0x8A4FD0, 0x5E2F94)]
     )
 
-    static let ranger = PixelSprite(
-        name: "Pixel ranger",
+    static let sparrow = PixelSprite(
+        name: "Pixel sparrow",
         rows: [
             "................................",
             "................................",
@@ -174,26 +175,26 @@ struct PixelSprite {
             "..kaaaaaAAkkkkkkkkkkkkAAaaaaak..",
             "..kaaaaAkhhhhhhhhhhhhhhkAaaaak..",
             "..kaaaAkhhhhhhhhhhhhhhhhkAaaak..",
-            "..kaaaAkfhhffhffffhffhhfkAaaak..",
-            "..kaaaAkffffffffffffffffkAaaak..",
-            "..kaaaAkffffffffffffffffkAaaak..",
-            "..kaaaAkffffffffffffffffkAaaak..",
-            "..kaaaAkffffffffffffffffkAaaak..",
-            "..kaaaAkffffffffffffffffkAaaak..",
-            "..kaaaAkkFffffffffffffFkkAaaak..",
-            "..kaaaaAkkFFffffffffFFkkAaaaak..",
-            "..kaaaaaAAkkFFffffFFkkAAaaaaak..",
-            "..kaaaaaakkkkttttttkkkkaaaaaak..",
-            ".kaaaaaaktttTttttttTtttkaaaaaak.",
+            "..kaaaAkhWWWhhhhhhhhWWWhkAaaak..",
+            "..kaaaAkWWWWWWWWWWWWWWWWkAaaak..",
+            "..kaaaAkhhWWWWWWWWWWWWhhkAaaak..",
+            "..kaaaAkWWWWWWWWWWWWWWWWkAaaak..",
+            "..kaaaAkWWWWWWWyyWWWWWWWkAaaak..",
+            "..kaaaAkggWWWWyyyyWWWWggkAaaak..",
+            "..kaaaAkkgWWWWnnnnWWWWgkkAaaak..",
+            "..kaaaaAkkWWWnnnnnnWWWkkAaaaak..",
+            "..kaaaaaAAkkWWnnnnWWkkAAaakfkk..",
+            "..kaaaaaakkkkttttttkkkkaakfkak..",
+            ".kaaaaaaktttTttttttTtttkkfkaaak.",
             ".kaaaaaaakTTTTTTTTTTTTkaaaaaaak.",
-            "kaaaaaaaaaakkkkkkkkkttaaaaaaaaak",
-            "kaaaaaaaaaaAAAAkkAAAtTaaaaaaaaak",
-            "kaaaaaaaaaaAAAAssAAAAtTaaaaaaaak",
-            "kaaaaaaaaaaAAAAAAAAAATaaaaaaaaak",
+            "kaaaaaaaaaakkkkkkkkkrraaaaaaaaak",
+            "kaaaaaaaaaaAAAAkkAAArRaaaaaaaaak",
+            "kaaaaaaaaaaAAAAssAAAArRaaaaaaaak",
+            "kaaaaaaaaaaAAAAAAAAAARaaaaaaaaak",
             "kaaaaaaaaaaAAAAAAAAAAaaaaaaaaaak",
             "kaaaaaaaaaaAAAAAAAAAAaaaaaaaaaak",
         ],
-        colors: ["h": 0xE8783A, "H": 0xB8522A, "t": 0xD8434A, "T": 0x9A2A34, "s": 0xFFD866],
+        colors: ["h": 0xA8643A, "W": 0xF0E6D2, "g": 0xBDB5AA, "y": 0xD8B070, "n": 0x2A2420, "m": 0x2A2420, "o": 0xA88850, "t": 0xD8434A, "T": 0x9A2A34, "s": 0xFFD866, "r": 0x8A5A2A, "R": 0x5E3A1A, "f": 0xF4F1E8],
         outfits: [(0x4E9A3E, 0x2F6A2A), (0x8A6440, 0x5E4228), (0x56708C, 0x384C64)]
     )
 }
