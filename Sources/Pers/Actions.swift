@@ -55,6 +55,19 @@ struct Action: Codable, Identifiable, Equatable {
     }
 }
 
+extension Action {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        repo = try container.decodeIfPresent(String.self, forKey: .repo)
+        command = try container.decode(String.self, forKey: .command)
+        nickname = try container.decodeIfPresent(String.self, forKey: .nickname) ?? ""
+        environment = try container.decodeIfPresent(String.self, forKey: .environment) ?? ""
+        readyMarker = try container.decodeIfPresent(String.self, forKey: .readyMarker) ?? ""
+        choices = try container.decodeIfPresent(String.self, forKey: .choices)
+    }
+}
+
 @MainActor
 final class ActionRun: ObservableObject, Identifiable {
     enum State: Equatable { case running, ready, exited(Int32), stopped }
