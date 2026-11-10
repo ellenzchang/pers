@@ -70,7 +70,10 @@ struct MessageLog: View {
             }
             .onChange(of: session.revealed) { if !navigator.active && scroller.followsBottom { scrollDown(proxy, animated: false) } }
             .onChange(of: session.messages.last?.text) { if !navigator.active && scroller.followsBottom { scrollDown(proxy, animated: false) } }
-            .onChange(of: session.boxedMessages.count) { if navigator.active || !scroller.followsBottom { navigator.newMessage = true } }
+            .onChange(of: session.boxedMessages.count) {
+                let userInitiated = session.boxedMessages.last.map { [.user, .shell].contains($0.speaker) } ?? false
+                if !userInitiated && (navigator.active || !scroller.followsBottom) { navigator.newMessage = true }
+            }
             .onChange(of: navigator.messageId) {
                 if navigator.message(in: session.boxedMessages)?.id == session.boxedMessages.last?.id { navigator.newMessage = false }
                 centerSelection(proxy)
