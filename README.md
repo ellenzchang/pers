@@ -63,9 +63,9 @@ A set can instead hold several outfits that share face overlays. Each Claude ses
 
 Actions are saved shell commands (build, run a server, deploy) shown in the ACTIONS panel (⌘⇧A with the Vim preset, ⌘I with the video game preset). They live in `~/Library/Application Support/ClaudeQuest/actions.json`, which the app watches, so edits appear in a running app.
 
-The repo ships a Claude Code skill, `claude-quest-action`, in `.claude/skills/claude-quest-action/`. Ask Claude in any repo to "add a claude-quest action to run this" and it reads the repo, drafts the action, shows it for your approval and writes it to `actions.json`.
+The repo ships a Claude Code skill, `pers-action`, in `.claude/skills/pers-action/`. Ask Claude in any repo to "add a pers action to run this" and it reads the repo, drafts the action, shows it for your approval and writes it to `actions.json`.
 
-To use the skill from other repos, copy the folder to `~/.claude/skills/claude-quest-action/`.
+To use the skill from other repos, copy the folder to `~/.claude/skills/pers-action/`.
 
 Action fields:
 

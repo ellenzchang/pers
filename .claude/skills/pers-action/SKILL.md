@@ -1,6 +1,6 @@
 ---
-name: claude-quest-action
-description: Use when the user wants to add, create, or update a Claude Quest action for the repo they are working in, e.g. "add a claude-quest action to run this", "make an action for the build", "save this command in claude quest".
+name: pers-action
+description: Use when the user wants to add, create, or update a Claude Quest action for the repo they are working in, e.g. "add a pers action to run this", "add a claude-quest action", "make an action for the build", "save this command in claude quest".
 ---
 
 # Claude Quest actions
