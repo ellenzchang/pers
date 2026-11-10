@@ -2,3 +2,4 @@
 *.app
 .claude/worktrees/
 Sprites/
+scripts/fetch_sprites.py
