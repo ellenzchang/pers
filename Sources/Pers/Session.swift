@@ -33,6 +33,8 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var typingId: UUID?
     @Published private(set) var revealed = 0
     @Published private(set) var prompt: PermissionPrompt?
+    /// Tool calls Claude started that have no result yet, keyed by tool use id.
+    @Published private(set) var runningTools: [String: UUID] = [:]
     /// The tab's shell, started by its first terminal command and kept for the next ones.
     @Published private(set) var shell: ShellTerminal?
     @Published private(set) var terminalMode = ShellTerminal.Mode()
@@ -649,6 +651,7 @@ final class Session: ObservableObject, Identifiable {
         input = nil
         prompt = nil
         process = nil
+        runningTools = [:]
         isBusy = false
         refreshGit()
     }
@@ -672,6 +675,9 @@ final class Session: ObservableObject, Identifiable {
                 contextTokens = ["input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"]
                     .reduce(0) { $0 + (usage[$1] as? Int ?? 0) }
             }
+        case "user":
+            let blocks = (event["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
+            for case let id as String in blocks.map({ $0["tool_use_id"] }) { runningTools[id] = nil }
         case "control_request":
             guard let id = event["request_id"] as? String,
                   let request = event["request"] as? [String: Any],
@@ -706,6 +712,7 @@ final class Session: ObservableObject, Identifiable {
     private func append(block: [String: Any]) {
         guard let message = Self.message(from: block) else { return }
         messages.append(message)
+        if message.speaker == .tool, let id = block["id"] as? String { runningTools[id] = message.id }
         if message.speaker == .claude {
             startTyping(message)
         }
@@ -724,7 +731,10 @@ final class Session: ObservableObject, Identifiable {
         case "tool_use":
             let name = block["name"] as? String ?? "tool"
             let input = block["input"] as? [String: Any] ?? [:]
-            return ChatMessage(speaker: .tool, text: "\(name)\t\(detail(of: input))", edits: edits(of: input))
+            let detail = detail(of: input)
+            let description = (input["description"] as? String).flatMap { $0 == detail ? nil : $0 }
+            let parts = [name, detail] + (description.map { [$0] } ?? [])
+            return ChatMessage(speaker: .tool, text: parts.joined(separator: "\t"), edits: edits(of: input))
         default:
             return nil
         }
