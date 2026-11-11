@@ -862,10 +862,11 @@ final class AppStore: ObservableObject {
 
     var selected: Session? { sessions.first { $0.id == selectedId } }
 
-    /// The overview's rows: sessions grouped by repo, in tab order.
+    /// The overview's rows: sessions grouped by repo, repos sorted by folder name.
     var repos: [RepoGroup] {
         let paths = sessions.map(\.repoPath).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
         return paths.map { path in RepoGroup(path: path, sessions: sessions.filter { $0.repoPath == path }) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     func newTab(directory: String? = nil) {
