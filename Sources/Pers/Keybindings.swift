@@ -89,7 +89,7 @@ enum KeyPreset: String, CaseIterable {
 }
 
 enum KeySection: CaseIterable {
-    case app, chatInput, navigation, messages, diff, actions, apiTester, apiRequests, apiResponse, permission
+    case app, chatInput, navigation, messages, diff, actions, apiTester, apiRequests, apiResponse, permission, settings
 
     var title: String {
         switch self {
@@ -103,6 +103,7 @@ enum KeySection: CaseIterable {
         case .apiRequests: "API tester · requests"
         case .apiResponse: "API tester · response"
         case .permission: "API tester · permission prompt"
+        case .settings: "Settings"
         }
     }
 
@@ -118,6 +119,7 @@ enum KeySection: CaseIterable {
         case .apiRequests: "With the request pane selected"
         case .apiResponse: "With the response pane selected"
         case .permission: "While Claude asks to use a tool"
+        case .settings: "On the settings page"
         }
     }
 
@@ -151,6 +153,7 @@ enum KeyAction: String, CaseIterable, Identifiable {
     case editURL, renameRequest, editHeaders, editBody, cycleMethod, newRequest, deleteRequest
     case toggleNode, expand, collapse, expandAll, collapseAll, search, nextMatch, previousMatch, toggleHeaders, copyAll
     case allow, allowAlways, deny
+    case previousOption, nextOption
 
     var id: String { rawValue }
     var section: KeySection { info.section }
@@ -245,6 +248,9 @@ enum KeyAction: String, CaseIterable, Identifiable {
         case .allow: (.permission, "Allow", ["y"], ["y"])
         case .allowAlways: (.permission, "Always allow", ["a"], ["a"])
         case .deny: (.permission, "Deny", ["n"], ["n"])
+
+        case .previousOption: (.settings, "Previous sprite, or smaller text", ["h", "←"], ["a", "←"])
+        case .nextOption: (.settings, "Next sprite, or larger text", ["l", "→"], ["d", "→"])
         }
     }
 }

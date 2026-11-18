@@ -7,6 +7,7 @@ struct ContentView: View {
     @StateObject private var navigator = Navigator()
     @AppStorage(Theme.styleKey) private var style = ThemeStyle.neutral
     @AppStorage(DialogueBox.showSpriteKey) private var showSprite = false
+    @ObservedObject private var fonts = FontSettings.shared
 
     var body: some View {
         Group {
@@ -34,7 +35,7 @@ struct ContentView: View {
         .ignoresSafeArea(edges: .top)
         .preferredColorScheme(.dark)
         .frame(minWidth: 820, minHeight: 600)
-        .id(style)
+        .id("\(style.rawValue) \(fonts.scale)")
     }
 
     private var sessions: some View {

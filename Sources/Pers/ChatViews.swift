@@ -342,7 +342,7 @@ struct MessageRow: View {
             .background(Slant(amount: 7).fill(color))
         let command = detail.map {
             Text($0)
-                .font(description == nil ? Theme.code : .system(size: 10.5, design: .monospaced))
+                .font(description == nil ? Theme.code : .system(size: 10.5 * Theme.fontScale, design: .monospaced))
                 .foregroundStyle(Theme.dim)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -735,7 +735,7 @@ struct DialogueBox: View {
         return session.terminalSuggestion(for: session.draft)
     }
 
-    private var draftFont: Font { isShell ? .system(size: 14, design: .monospaced) : Theme.body }
+    private var draftFont: Font { isShell ? .system(size: 14 * Theme.fontScale, design: .monospaced) : Theme.body }
 
     private var inTerminal: Bool { mode == .terminal && !isAnswering }
     private var isShell: Bool { inTerminal || session.draft.hasPrefix("!") }

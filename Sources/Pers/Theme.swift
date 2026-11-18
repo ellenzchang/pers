@@ -6,6 +6,7 @@ enum ThemeStyle: String, CaseIterable {
 
 enum Theme {
     static let styleKey = "theme"
+    static let fontScaleKey = "fontScale"
 
     private static var style: String? { UserDefaults.standard.string(forKey: styleKey) }
     static var isQuest: Bool { style == ThemeStyle.quest.rawValue }
@@ -22,6 +23,11 @@ enum Theme {
     static func morphTime(_ date: Date) -> Double {
         let time = date.timeIntervalSinceReferenceDate
         return isPhantom ? time * 7 : time
+    }
+
+    static var fontScale: CGFloat {
+        let saved = UserDefaults.standard.double(forKey: fontScaleKey)
+        return saved > 0 ? saved : FontSettings.defaultScale
     }
 
     static func radius(_ value: CGFloat) -> CGFloat { isTerminal ? 0 : value }
@@ -49,7 +55,8 @@ enum Theme {
     /// The 8 basic terminal colours, shared by the chat and the opened terminal. Black is drawn dim, since it would vanish on the dark background.
     static var ansi: [Color] { [dim, red, green, gold, cyan, pink, aqua, text] }
 
-    static func ui(_ size: CGFloat = 12, weight: Font.Weight = .heavy) -> Font {
+    static func ui(_ size: CGFloat = 12, weight: Font.Weight = .heavy, scale: CGFloat = fontScale) -> Font {
+        let size = size * scale
         if isTerminal { return .system(size: size, weight: .regular, design: .monospaced) }
         if isPhantom { return .system(size: size, weight: .black).width(.condensed) }
         return isQuest ? .system(size: size, weight: weight).width(.condensed).italic() : .system(size: size, weight: .medium)
@@ -59,8 +66,56 @@ enum Theme {
         if isPhantom { return .system(size: size, weight: .black, design: .serif).italic() }
         return isQuest ? .system(size: size, weight: .black).width(.compressed).italic() : .system(size: size * 0.6, weight: .semibold)
     }
-    static var body: Font { isTerminal ? .system(size: 13.5, design: .monospaced) : .system(size: 14.5, weight: .medium) }
-    static let code = Font.system(size: 12.5, design: .monospaced)
+    static var body: Font { body(scale: fontScale) }
+    static func body(scale: CGFloat) -> Font {
+        isTerminal ? .system(size: 13.5 * scale, design: .monospaced) : .system(size: 14.5 * scale, weight: .medium)
+    }
+    static var code: Font { code(scale: fontScale) }
+    static func code(scale: CGFloat) -> Font { .system(size: 12.5 * scale, design: .monospaced) }
+}
+
+/// How much every text size in the app is multiplied by, kept in UserDefaults.
+/// Applying a size rebuilds the whole window, so the slider moves a `draft` that only the settings preview shows,
+/// and the size is applied when the drag ends or the arrow keys rest. Applying remembers the size it replaced.
+@MainActor
+final class FontSettings: ObservableObject {
+    static let shared = FontSettings()
+    static let range: ClosedRange<CGFloat> = 0.8...1.6
+    static let step: CGFloat = 0.05
+    nonisolated static let defaultScale: CGFloat = 1
+
+    @Published private(set) var scale = Theme.fontScale
+    @Published var draft = Theme.fontScale
+    @Published private(set) var previous: CGFloat?
+    private var pendingApply: Task<Void, Never>?
+
+    func choose(_ newScale: CGFloat) {
+        pendingApply?.cancel()
+        let newScale = min(max((newScale / Self.step).rounded() * Self.step, Self.range.lowerBound), Self.range.upperBound)
+        draft = newScale
+        guard newScale != scale else { return }
+        previous = scale
+        scale = newScale
+        UserDefaults.standard.set(Double(newScale), forKey: Theme.fontScaleKey)
+    }
+
+    func applyDraft() { choose(draft) }
+
+    /// Holding an arrow key would otherwise rebuild the window on every repeat and step "previous" one notch at a time.
+    func nudge(by steps: Int) {
+        draft = min(max(draft + CGFloat(steps) * Self.step, Self.range.lowerBound), Self.range.upperBound)
+        pendingApply?.cancel()
+        pendingApply = Task {
+            try? await Task.sleep(for: .milliseconds(450))
+            if !Task.isCancelled { applyDraft() }
+        }
+    }
+
+    func restorePrevious() {
+        previous.map(choose)
+    }
+
+    static func label(_ scale: CGFloat) -> String { "\(Int((scale * 100).rounded()))%" }
 }
 
 extension Color {
