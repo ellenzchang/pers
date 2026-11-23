@@ -33,6 +33,7 @@ struct PersApp: App {
                 Button("Toggle Diff") { store.selected?.toggleDiff() }.keyboardShortcut(.toggleDiff)
                 Button("Toggle Diff Base") { store.selected?.toggleDiffBase() }.keyboardShortcut(.toggleDiffBase)
                 Button("Toggle Git Log") { store.selected?.toggleLog() }.keyboardShortcut(.toggleLog)
+                Button("Next Repo") { store.selected?.cycleWorkspace() }.keyboardShortcut(.nextWorkspace)
                 Button("Previous Tab") { cycleTab(by: -1) }.keyboardShortcut(.previousTab)
                 Button("Next Tab") { cycleTab(by: 1) }.keyboardShortcut(.nextTab)
             }

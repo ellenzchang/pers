@@ -142,7 +142,7 @@ enum KeySection: CaseIterable {
 
 enum KeyAction: String, CaseIterable, Identifiable {
     case newTab, newWorktree, closeTab, previousTab, nextTab, map, actions, pullRequests, previousModel, nextModel, nextMode, nextEffort,
-         toggleDiff, toggleDiffBase, toggleLog, terminal, sprite, openInIntelliJ, sendRequest
+         toggleDiff, toggleDiffBase, toggleLog, nextWorkspace, terminal, sprite, openInIntelliJ, sendRequest
     case send, navigate, switchInput, interrupt, reset, load, olderHistory, newerHistory, pageUp, pageDown, scrollLeft, scrollRight,
          acceptSuggestion
     case up, down, top, bottom, previousGroup, nextGroup, select, back, copy
@@ -180,6 +180,7 @@ enum KeyAction: String, CaseIterable, Identifiable {
         case .toggleDiff: (.app, "Diff", ["⌘d"], ["⌘d"])
         case .toggleDiffBase: (.app, "Diff against main or unstaged", ["⌘B"], ["⌘B"])
         case .toggleLog: (.app, "Git log", ["⌘l"], ["⌘l"])
+        case .nextWorkspace: (.app, "Next repo Claude worked in", ["⌘R"], ["⌘R"])
         case .terminal: (.app, "Terminal, or stop Claude when the tab has none", ["⌘."], ["⌘."])
         case .sprite: (.app, "Show portrait", ["⌘P"], ["⌘P"])
         case .openInIntelliJ: (.app, "Open diff file in IntelliJ", ["⌘O"], ["⌘O"])
@@ -214,7 +215,7 @@ enum KeyAction: String, CaseIterable, Identifiable {
 
         case .backToLog: (.diff, "Back to git log", ["⌫"], ["⌫"])
 
-        case .switchScope: (.actions, "Repo or global actions", ["⇥"], ["⇥"])
+        case .switchScope: (.actions, "Next repo, or global actions", ["⇥"], ["⇥"])
         case .stopAction: (.actions, "Stop", ["s"], ["x"])
         case .toggleOutput: (.actions, "Show output", ["␣"], ["␣"])
         case .editAction: (.actions, "Edit", ["e"], ["r"])

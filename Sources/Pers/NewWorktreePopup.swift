@@ -40,7 +40,7 @@ struct NewWorktreePopup: View {
 
     private func create() {
         let name = name.trimmed
-        guard !name.isEmpty, let directory = store.selected?.directory else { return }
+        guard !name.isEmpty, let directory = store.selected?.workspace else { return }
         do {
             store.newTab(directory: try Git.addWorktree(named: name, from: directory))
             dismiss()

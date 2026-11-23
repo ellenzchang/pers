@@ -269,22 +269,35 @@ struct StatusHUD: View {
 struct StatusLine: View {
     @ObservedObject var session: Session
 
-    /// Collapses the pull requests into one summary badge when listing them all would get cut off.
+    /// Collapses the pull requests into one summary badge, then the repos into the one in view, when listing them all would get cut off.
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            line(summarizing: false)
-            line(summarizing: true)
+            line(summarizing: false, allRepos: true)
+            line(summarizing: true, allRepos: true)
+            line(summarizing: true, allRepos: false)
         }
     }
 
-    private func line(summarizing: Bool) -> some View {
+    private func line(summarizing: Bool, allRepos: Bool) -> some View {
         HStack(spacing: 10) {
             Text(session.model.label + (session.effort.map { " · \($0.label)" } ?? "")).foregroundStyle(Theme.ice)
             separator
             Text(session.mode.label).foregroundStyle(session.mode.color)
-            if let git = session.git {
-                separator
-                gitStatus(git)
+            if allRepos && session.workspaces.count > 1 {
+                ForEach(session.workspaces) { entry in
+                    separator
+                    repoStatus(entry)
+                }
+            } else {
+                if session.workspaces.count > 1, let index = session.workspaces.firstIndex(of: session.activeWorkspace) {
+                    separator
+                    Text("\(session.label(of: session.activeWorkspace)) \(index + 1)/\(session.workspaces.count)").foregroundStyle(Theme.ice)
+                        .help(Self.switchHelp(session))
+                }
+                if let git = session.git {
+                    separator
+                    GitStatus(git: git)
+                }
             }
             if let used = session.contextTokens {
                 separator
@@ -308,16 +321,18 @@ struct StatusLine: View {
 
     private var separator: some View { Text("│").foregroundStyle(Theme.dim) }
 
-    private func gitStatus(_ git: GitInfo) -> some View {
+    /// The repo in view is bright; the others are dimmed.
+    private func repoStatus(_ entry: Workspace) -> some View {
         HStack(spacing: 6) {
-            Text("⎇ \(git.branch)").foregroundStyle(git.changedFiles > 0 ? Theme.gold : Theme.green)
-            if git.unstaged > 0 { Text("*\(git.unstaged)").foregroundStyle(Theme.gold) }
-            if git.staged > 0 { Text("+\(git.staged)").foregroundStyle(Theme.green) }
-            if git.untracked > 0 { Text("?\(git.untracked)").foregroundStyle(Theme.pink) }
-            if git.ahead > 0 { Text("↑\(git.ahead)").foregroundStyle(Theme.cyan) }
-            if git.behind > 0 { Text("↓\(git.behind)").foregroundStyle(Theme.cyan) }
+            Text(session.label(of: entry)).foregroundStyle(Theme.ice)
+            if let git = session.gitStates[entry.path] { GitStatus(git: git) }
         }
-        .help("* unstaged  + staged  ? untracked  ↑ ahead  ↓ behind")
+        .opacity(entry.path == session.workspace ? 1 : 0.5)
+        .help(Self.switchHelp(session))
+    }
+
+    static func switchHelp(_ session: Session) -> String {
+        "Claude worked in \(session.workspaces.count) repos; \(KeyAction.nextWorkspace.label) shows the next one's diff, log and actions"
     }
 
     @ViewBuilder
@@ -333,6 +348,28 @@ struct StatusLine: View {
             Text("◔ \(StatusHUD.compact(used))").foregroundStyle(Theme.dim)
                 .help("Context tokens used; the window size shows after the next reply")
         }
+    }
+}
+
+struct GitStatus: View {
+    var git: GitInfo
+    /// Off where the text sits on a highlight and has to keep the surrounding colour.
+    var tinted = true
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("⎇ \(git.branch)").foregroundStyle(tint(git.changedFiles > 0 ? Theme.gold : Theme.green))
+            if git.unstaged > 0 { Text("*\(git.unstaged)").foregroundStyle(tint(Theme.gold)) }
+            if git.staged > 0 { Text("+\(git.staged)").foregroundStyle(tint(Theme.green)) }
+            if git.untracked > 0 { Text("?\(git.untracked)").foregroundStyle(tint(Theme.pink)) }
+            if git.ahead > 0 { Text("↑\(git.ahead)").foregroundStyle(tint(Theme.cyan)) }
+            if git.behind > 0 { Text("↓\(git.behind)").foregroundStyle(tint(Theme.cyan)) }
+        }
+        .help("* unstaged  + staged  ? untracked  ↑ ahead  ↓ behind")
+    }
+
+    private func tint(_ color: Color) -> AnyShapeStyle {
+        tinted ? AnyShapeStyle(color) : AnyShapeStyle(.foreground)
     }
 }
 

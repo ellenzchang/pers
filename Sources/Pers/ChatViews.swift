@@ -535,7 +535,8 @@ struct DialogueBox: View {
         let diffControls = [(KeyAction.toggleDiffBase.label, session.diffBase == .unstaged ? "vs main" : "unstaged"), diffToggle, logToggle]
         let terminal = session.shell == nil ? [] : [(KeyAction.terminal.label, session.showingTerminal ? "type in terminal" : "terminal")]
             + (session.isRunningShell ? [(KeyAction.interrupt.label, "stop")] : [])
-        let toggles = terminal + (session.showingDiff ? diffControls : [diffToggle, logToggle])
+        let workspace = session.workspaces.count > 1 ? [(KeyAction.nextWorkspace.label, "next repo")] : []
+        let toggles = terminal + workspace + (session.showingDiff ? diffControls : [diffToggle, logToggle])
         if !navigator.active && isAnswering && navigator.typingAnswer { return [(KeyAction.navigate.label, "back to options")] + toggles }
         return toggles
     }

@@ -48,7 +48,7 @@ private struct OverviewRow: View {
                     .font(Theme.ui(15, weight: .bold))
                     .lineLimit(1)
                 HStack(spacing: 4) {
-                    if let branch = session.git?.branch {
+                    if session.workspaces.count == 1, let branch = session.git?.branch {
                         Text(branch)
                             .font(Theme.ui(12))
                             .opacity(0.7)
@@ -58,13 +58,16 @@ private struct OverviewRow: View {
                     if session.hasUnread { tag("NEW") }
                     if session.forkedFrom != nil { tag("FORK") }
                 }
+                if session.workspaces.count > 1 {
+                    ForEach(session.workspaces) { entry in repoLine(entry) }
+                }
                 if let command = session.runningCommand {
                     RunLine(name: "❯ \(command)", status: session.terminalStatus.uppercased(), color: Theme.green,
                             highlighted: highlighted, isActive: true, stopOrDismiss: session.stopTerminal)
                         .contentShape(Rectangle())
                         .onTapGesture(perform: showTerminalMessage)
                 }
-                ForEach(store.runs.filter { $0.directory == session.directory }) { run in
+                ForEach(store.runs.filter { session.works(in: $0.directory) }) { run in
                     RunLine(name: "▸ \(run.action.name)", status: run.state.label(readyMarker: run.action.readyMarker), color: run.state.color,
                             highlighted: highlighted, isActive: run.isActive) {
                         if run.isActive { run.stop() } else { store.dismiss(run) }
@@ -89,6 +92,17 @@ private struct OverviewRow: View {
             tabTitle = await Task.detached { SaveData.title(ofSession: sessionId) }.value
         }
         .onTapGesture { store.selectedId = session.id }
+    }
+
+    /// A repo Claude worked in, with its branch and changes. The one the tab is showing is brightest.
+    private func repoLine(_ entry: Workspace) -> some View {
+        HStack(spacing: 6) {
+            Text(session.label(of: entry)).font(Theme.ui(12, weight: .bold))
+            if let git = session.gitStates[entry.path] { GitStatus(git: git, tinted: false).font(Theme.ui(12)) }
+        }
+        .lineLimit(1)
+        .opacity(entry.path == session.workspace ? 1 : 0.6)
+        .help(StatusLine.switchHelp(session))
     }
 
     /// Selects the command's message in navigation mode, where ⏎ opens its terminal.

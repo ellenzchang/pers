@@ -61,7 +61,7 @@ A set can instead hold several outfits that share face overlays. Each Claude ses
 
 ## Pers actions
 
-Actions are saved shell commands (build, run a server, deploy) shown in the ACTIONS panel (⌘⇧A with the Vim preset, ⌘I with the video game preset). They live in `~/Library/Application Support/Pers/actions.json`, which the app watches, so edits appear in a running app.
+Actions are saved shell commands (build, run a server, deploy) shown in the ACTIONS panel (⌘⇧A with the Vim preset, ⌘I with the video game preset). The panel has a tab for each repo the session works in, plus one for global actions. They live in `~/Library/Application Support/Pers/actions.json`, which the app watches, so edits appear in a running app.
 
 The repo ships a Claude Code skill, `pers-action`, in `.claude/skills/pers-action/`. Ask Claude in any repo to "add a pers action to run this" and it reads the repo, drafts the action, shows it for your approval and writes it to `actions.json`.
 
@@ -73,7 +73,7 @@ Action fields:
 |---|---|---|
 | `id` | yes | Uppercase UUID. |
 | `repo` | no | Absolute path of the repo's main checkout, shared by its worktrees. Omit for a global action. |
-| `command` | yes | Shell script, run with the session's directory as cwd. |
+| `command` | yes | Shell script, run in the checkout picked in the panel's repo tab. |
 | `nickname` | no | Display name. |
 | `environment` | no | `KEY=value` lines exported before the command. |
 | `readyMarker` | no | Output text that means a long-running command has started. |
@@ -93,6 +93,7 @@ To use the skill from other repos, copy the folder to `~/.claude/skills/pers-cre
 
 **Claude sessions**
 - Tabs grouped by repo, each running its own `claude` session; sessions and chat history are saved and restored.
+- A tab follows the repos Claude edits files in or runs `cd`/`git -C` commands in. Its git state, diff, log and actions show the repo Claude last worked in, and ⌘⇧R steps through the others.
 - Choose the model (Opus, Sonnet, Haiku), permission mode (manual, accept edits, plan, auto, don't ask, bypass) and effort (low to max) per tab, with shortcuts to cycle them.
 - Streaming chat with markdown, syntax-highlighted code and inline diffs for Edit and Write tool calls.
 - Permission prompts answered from the keyboard (allow, allow always, deny), including multiple-choice questions from Claude.
