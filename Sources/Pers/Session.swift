@@ -14,6 +14,10 @@ final class Session: ObservableObject, Identifiable {
     @Published var tokens: Int
     @Published private(set) var contextTokens: Int?
     @Published private(set) var contextWindow: Int?
+    @Published private(set) var pullRequests: [PullRequest] = []
+    private var pullRequestDetector = PullRequestDetector()
+    private var pullRequestTimer: Timer?
+    private var refreshingPullRequests = false
     @Published var messages: [ChatMessage]
     @Published var draft = "" { didSet { if draft.isEmpty { pastes = [:] } } }
     @Published var images: [Data] = []
@@ -91,6 +95,7 @@ final class Session: ObservableObject, Identifiable {
         forkAt = snapshot.forkAt
         outfit = snapshot.outfit ?? outfit
         refreshGit()
+        track(snapshot.pullRequests ?? [])
         checkTranscript()
     }
 
@@ -114,7 +119,7 @@ final class Session: ObservableObject, Identifiable {
         SessionSnapshot(id: id, directory: directory, sessionId: sessionId, model: model, mode: mode,
                         effort: effort, advising: advising, tokens: tokens, contextTokens: contextTokens, contextWindow: contextWindow,
                         messages: messages, outfit: outfit, draft: draft, pastes: pastes, inputHistory: inputHistory,
-                        forkedFrom: forkedFrom, forkAt: forkAt)
+                        forkedFrom: forkedFrom, forkAt: forkAt, pullRequests: pullRequests.map(\.url))
     }
 
     var title: String { (directory as NSString).lastPathComponent }
@@ -232,6 +237,7 @@ final class Session: ObservableObject, Identifiable {
         sessionId = saved.id
         messages = SaveData.messages(in: saved.url)
         tokens = 0
+        track(SaveData.pullRequests(in: saved.url))
     }
 
     /// Each Claude session gets one outfit for its whole lifetime.
@@ -239,6 +245,8 @@ final class Session: ObservableObject, Identifiable {
         sessionId = nil
         forkAt = nil
         contextTokens = nil
+        pullRequests = []
+        pullRequestDetector = PullRequestDetector()
         outfit = Int.random(in: 0..<1000)
         advisor?.terminate()
         advisor = nil
@@ -675,6 +683,7 @@ final class Session: ObservableObject, Identifiable {
     private func handle(line: String) -> Bool {
         guard let data = line.data(using: .utf8),
               let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        track(pullRequestDetector.urls(in: event))
 
         switch event["type"] as? String {
         case "system" where event["subtype"] as? String == "init":
@@ -722,6 +731,34 @@ final class Session: ObservableObject, Identifiable {
             break
         }
         return false
+    }
+
+    private func track(_ urls: [String]) {
+        let new = urls.filter { url in !pullRequests.contains { $0.url == url } }
+        guard !new.isEmpty else { return }
+        pullRequests += new.map { PullRequest(url: $0) }
+        refreshPullRequests()
+        pullRequestTimer = pullRequestTimer ?? Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self else { return timer.invalidate() }
+                self.refreshPullRequests()
+            }
+        }
+    }
+
+    private func refreshPullRequests() {
+        let unsettled = pullRequests.filter { !$0.isSettled }
+        guard !unsettled.isEmpty, !refreshingPullRequests else { return }
+        refreshingPullRequests = true
+        Task.detached {
+            let refreshed = unsettled.map { $0.refreshed() }
+            await MainActor.run {
+                self.refreshingPullRequests = false
+                for pr in refreshed {
+                    if let index = self.pullRequests.firstIndex(where: { $0.url == pr.url }) { self.pullRequests[index] = pr }
+                }
+            }
+        }
     }
 
     private func append(block: [String: Any]) {
@@ -793,7 +830,8 @@ final class AppStore: ObservableObject {
     @Published var pendingClose: WorktreeClose?
     @Published var creatingWorktree = false
     @Published var previewImage: NSImage?
-    @Published var showingActions = false
+    @Published var showingActions = false { didSet { if showingActions { showingPullRequests = false } } }
+    @Published var showingPullRequests = false { didSet { if showingPullRequests { showingActions = false } } }
     @Published var actions: [Action] = [] { didSet { saveActions() } }
     @Published var runs: [ActionRun] = []
     @Published var requests: [APIRequest] = [] { didSet { saveRequests() } }

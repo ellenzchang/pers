@@ -66,6 +66,11 @@ enum SaveData {
                             updated: max(modified, opened[id] ?? .distantPast), url: url)
     }
 
+    static func pullRequests(in url: URL) -> [String] {
+        var detector = PullRequestDetector()
+        return events(in: url).flatMap { detector.urls(in: $0) }
+    }
+
     static func messages(in url: URL) -> [ChatMessage] {
         chatEntries(in: url).map(\.message)
     }

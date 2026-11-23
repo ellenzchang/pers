@@ -333,7 +333,7 @@ enum Git {
         return result.status == 0 ? result.stdout : nil
     }
 
-    private static func execute(_ args: [String], in directory: String, executable: String = "/usr/bin/git") -> (status: Int32, stdout: String, stderr: String) {
+    static func execute(_ args: [String], in directory: String, executable: String = "/usr/bin/git") -> (status: Int32, stdout: String, stderr: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = args

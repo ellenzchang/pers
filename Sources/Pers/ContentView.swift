@@ -8,6 +8,7 @@ struct ContentView: View {
     @AppStorage(Theme.styleKey) private var style = ThemeStyle.neutral
     @AppStorage(DialogueBox.showSpriteKey) private var showSprite = false
     @ObservedObject private var fonts = FontSettings.shared
+    @ViewState private var hoverCardShown = false
 
     var body: some View {
         Group {
@@ -46,6 +47,8 @@ struct ContentView: View {
                     .zIndex(1)
                 DialogueBox(session: session, scroller: scroller, navigator: navigator)
                     .id(session.id)
+                    .onPreferenceChange(HoverCardShown.self) { hoverCardShown = $0 }
+                    .zIndex(hoverCardShown ? 2 : 0)
             }
         }
         .onChange(of: navigator.newMessage) { store.selected?.unseenAbove = navigator.newMessage }
@@ -60,11 +63,13 @@ struct ContentView: View {
             .padding(.bottom, 250)
         }
         .overlay(alignment: .topTrailing) {
-            if store.showingActions, let session = store.selected {
-                ActionPanel(session: session)
-                    .padding(.top, 90)
-                    .padding(.trailing, 18)
-                    .padding(.bottom, 250)
+            if let session = store.selected, store.showingActions || store.showingPullRequests {
+                Group {
+                    if store.showingActions { ActionPanel(session: session) } else { PullRequestPanel(session: session) }
+                }
+                .padding(.top, 90)
+                .padding(.trailing, 18)
+                .padding(.bottom, 250)
             }
         }
         .overlay {
@@ -83,6 +88,10 @@ struct ContentView: View {
                 .allowsHitTesting(false)
             Button("") { store.showingActions.toggle() }
                 .keyboardShortcut(.actions)
+                .opacity(0)
+                .allowsHitTesting(false)
+            Button("") { store.showingPullRequests.toggle() }
+                .keyboardShortcut(.pullRequests)
                 .opacity(0)
                 .allowsHitTesting(false)
             Button("") { openDiffFileInIntelliJ() }
@@ -260,7 +269,15 @@ struct StatusHUD: View {
 struct StatusLine: View {
     @ObservedObject var session: Session
 
+    /// Collapses the pull requests into one summary badge when listing them all would get cut off.
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            line(summarizing: false)
+            line(summarizing: true)
+        }
+    }
+
+    private func line(summarizing: Bool) -> some View {
         HStack(spacing: 10) {
             Text(session.model.label + (session.effort.map { " · \($0.label)" } ?? "")).foregroundStyle(Theme.ice)
             separator
@@ -272,6 +289,15 @@ struct StatusLine: View {
             if let used = session.contextTokens {
                 separator
                 context(used)
+            }
+            if summarizing && session.pullRequests.count > 1 {
+                separator
+                PullRequestSummary(prs: session.pullRequests)
+            } else {
+                ForEach(session.pullRequests) { pr in
+                    separator
+                    PullRequestBadge(pr: pr)
+                }
             }
         }
         .font(Theme.ui(12, weight: .bold))

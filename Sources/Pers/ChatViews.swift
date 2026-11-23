@@ -519,6 +519,7 @@ struct DialogueBox: View {
         .background(LinearGradient(colors: [.clear, Theme.deep.opacity(0.7)], startPoint: .top, endPoint: .bottom))
         .onAppear { focused = true }
         .onChange(of: store.showingActions) { if !store.showingActions { focused = true } }
+        .onChange(of: store.showingPullRequests) { if !store.showingPullRequests { focused = true } }
         // A focused input would take the keyboard back from the terminal.
         .onChange(of: session.showingTerminal) { focused = !session.showingTerminal }
         .onTapGesture { if session.isTalking { session.skipTyping() } }

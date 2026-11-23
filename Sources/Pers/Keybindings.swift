@@ -141,7 +141,7 @@ enum KeySection: CaseIterable {
 }
 
 enum KeyAction: String, CaseIterable, Identifiable {
-    case newTab, newWorktree, closeTab, previousTab, nextTab, map, actions, previousModel, nextModel, nextMode, nextEffort,
+    case newTab, newWorktree, closeTab, previousTab, nextTab, map, actions, pullRequests, previousModel, nextModel, nextMode, nextEffort,
          toggleDiff, toggleDiffBase, toggleLog, terminal, sprite, openInIntelliJ, sendRequest
     case send, navigate, switchInput, interrupt, reset, load, olderHistory, newerHistory, pageUp, pageDown, scrollLeft, scrollRight,
          acceptSuggestion
@@ -172,6 +172,7 @@ enum KeyAction: String, CaseIterable, Identifiable {
         case .nextTab: (.app, "Next tab", ["⌘2"], ["⌘2"])
         case .map: (.app, "Map", ["⌃m"], ["⌃m"])
         case .actions: (.app, "Actions panel", ["⌘A"], ["⌘I"])
+        case .pullRequests: (.app, "Pull requests panel", ["⌘p"], ["⌘p"])
         case .previousModel: (.app, "Previous model", ["⌘j"], ["⌘3"])
         case .nextModel: (.app, "Next model", ["⌘k"], ["⌘4"])
         case .nextMode: (.app, "Next permission mode", ["⌘M"], ["⌘M"])

@@ -22,6 +22,8 @@ struct PersApp: App {
                 Button("New Tab") { store.newTab() }.keyboardShortcut(.newTab)
                 Button("Close Tab") { store.selected.map(store.close) }.keyboardShortcut(.closeTab)
             }
+            // The default Print… item holds ⌘p, which opens the pull requests panel.
+            CommandGroup(replacing: .printItem) {}
             CommandMenu("Party") {
                 Button("Previous Model") { cycleModel(by: -1) }.keyboardShortcut(.previousModel)
                 Button("Next Model") { cycleModel(by: 1) }.keyboardShortcut(.nextModel)
