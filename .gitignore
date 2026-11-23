@@ -3,3 +3,4 @@
 .claude/worktrees/
 Sprites/
 scripts/fetch_sprites.py
+.index-build/
