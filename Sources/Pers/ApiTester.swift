@@ -169,7 +169,8 @@ extension AppStore {
         // The save folder watcher only sees files that are replaced, and Claude may edit in place, so each finished turn reloads too.
         requestTurnSubscription = requestSession.$isBusy.removeDuplicates().filter { !$0 }.sink { [weak self] _ in self?.loadRequests() }
         // Opening the page moves the session to the last tab's repo, which is already the open folder and shouldn't be saved.
-        requestFolderSubscription = requestSession.$git.compactMap { $0?.repoPath }.removeDuplicates().sink { [weak self] path in
+        let session = requestSession
+        requestFolderSubscription = session.$gitStates.compactMap { $0[session.workspace]?.repoPath }.removeDuplicates().sink { [weak self] path in
             guard let self, path != requestFolder else { return }
             createFolder(path)
         }
@@ -244,7 +245,7 @@ struct APITester: View {
                       hints: hints, highlighted: armedKey)
         }
         .onAppear {
-            store.requestSession.directory = store.selected?.directory ?? NSHomeDirectory()
+            store.requestSession.directory = store.selected?.workspace ?? NSHomeDirectory()
             store.openFolder(store.selected?.repoPath ?? store.requestFolders.first)
             browser.show(selectedIndex.flatMap { store.responses[store.requests[$0].id] })
             dismissedReply = store.requestSession.messages.count

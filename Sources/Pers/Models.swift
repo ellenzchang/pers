@@ -83,6 +83,8 @@ struct SessionSnapshot: Codable {
     var forkedFrom: UUID?
     var forkAt: String?
     var pullRequests: [String]?
+    var workspaces: [Workspace]?
+    var workspace: String?
 }
 
 struct PermissionPrompt {

@@ -68,7 +68,43 @@ struct GitInfo: Equatable {
     var repoPath: String { worktrees.first?.path ?? root }
 }
 
+/// A folder a session works in: its launch directory, or a checkout Claude edited files or ran commands in.
+struct Workspace: Codable, Hashable, Identifiable {
+    var path: String
+    /// The main checkout, which saved actions and requests are filed under.
+    var repo: String
+    var id: String { path }
+    var name: String { (path as NSString).lastPathComponent }
+}
+
 enum Git {
+    /// The path itself for a folder, or the folder holding a file.
+    static func folder(of path: String) -> String {
+        var isDirectory: ObjCBool = false
+        FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+        return isDirectory.boolValue ? path : (path as NSString).deletingLastPathComponent
+    }
+
+    static func workspace(containing path: String) -> Workspace? {
+        guard let root = run(["rev-parse", "--show-toplevel"], in: folder(of: path))?.trimmed else { return nil }
+        return Workspace(path: root, repo: worktrees(at: root).first?.path ?? root)
+    }
+
+    /// Whether a changed file, or HEAD through a commit or checkout, was touched after `start`. Older uncommitted work doesn't count.
+    static func changed(in root: String, since start: Date) -> Bool {
+        let threshold = start.addingTimeInterval(-1)
+        let modified = { (path: String) in
+            ((try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date).map { $0 >= threshold } ?? false
+        }
+        let headLog = run(["rev-parse", "--git-path", "logs/HEAD"], in: root)?.trimmed ?? ""
+        if !headLog.isEmpty && modified(headLog.hasPrefix("/") ? headLog : (root as NSString).appendingPathComponent(headLog)) { return true }
+        // A deleted file has no date of its own, but deleting it touches its folder.
+        return (run(["status", "--porcelain", "-z"], in: root) ?? "").split(separator: "\0").contains { entry in
+            let path = (root as NSString).appendingPathComponent(String(entry.dropFirst(3)))
+            return modified(path) || modified((path as NSString).deletingLastPathComponent)
+        }
+    }
+
     static func info(at directory: String) -> GitInfo? {
         guard let root = run(["rev-parse", "--show-toplevel"], in: directory)?.trimmed else { return nil }
         let status = run(["status", "--porcelain=v1", "--branch"], in: directory) ?? ""

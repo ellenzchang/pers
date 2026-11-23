@@ -5,7 +5,20 @@ import Combine
 @MainActor
 final class Session: ObservableObject, Identifiable {
     let id: UUID
-    @Published var directory: String { didSet { if directory != oldValue { startNewSession(); refreshGit() } } }
+    /// Where Claude runs. `--resume` only finds sessions recorded under it, so it stays put while Claude works elsewhere.
+    @Published var directory: String {
+        didSet {
+            guard directory != oldValue else { return }
+            workspaces = [Workspace(path: directory, repo: directory)]
+            workspace = directory
+            startNewSession()
+            refreshGit()
+        }
+    }
+    /// The launch directory, then the checkouts Claude edited or ran commands in, in the order it reached them.
+    @Published private(set) var workspaces: [Workspace]
+    /// The workspace git, the diff, the log and actions follow: the one Claude last worked in, or the one picked.
+    @Published private(set) var workspace: String
     @Published var sessionId: String?
     @Published var model: ClaudeModel
     @Published var mode: PermissionMode
@@ -25,7 +38,9 @@ final class Session: ObservableObject, Identifiable {
     @Published private(set) var inputHistory: [String] = []
     @Published var liveModel: String?
     @Published private(set) var outfit = Int.random(in: 0..<1000)
-    @Published var git: GitInfo?
+    /// Every workspace's git state, so the status line and overview can show each repo, not just the one in view.
+    @Published private(set) var gitStates: [String: GitInfo] = [:]
+    var git: GitInfo? { gitStates[workspace] }
     @Published var showingDiff = false
     @Published private(set) var diffBase = DiffBase.unstaged
     @Published private(set) var diff: [FileDiff] = []
@@ -65,10 +80,15 @@ final class Session: ObservableObject, Identifiable {
     private var advisor: Process?
     private var pendingAdvice: [String] = []
     var extraArguments: (@MainActor () -> [String])?
+    /// Tool calls waiting for their result: the paths each may have changed, and when it started.
+    private var pendingWork: [String: (paths: [String], started: Date)] = [:]
+    private var shellDirectory: String?
 
     init(directory: String, model: ClaudeModel = .sonnet, mode: PermissionMode = .acceptEdits) {
         id = UUID()
         self.directory = directory
+        workspaces = [Workspace(path: directory, repo: directory)]
+        workspace = directory
         self.model = model
         self.mode = mode
         tokens = 0
@@ -79,6 +99,8 @@ final class Session: ObservableObject, Identifiable {
     init(snapshot: SessionSnapshot) {
         id = snapshot.id
         directory = snapshot.directory
+        workspaces = snapshot.workspaces ?? [Workspace(path: snapshot.directory, repo: snapshot.directory)]
+        workspace = snapshot.workspace ?? snapshot.directory
         sessionId = snapshot.sessionId
         model = snapshot.model
         mode = snapshot.mode
@@ -103,6 +125,8 @@ final class Session: ObservableObject, Identifiable {
     init(forking parent: Session, messages: [ChatMessage], forkAt: String?) {
         id = UUID()
         directory = parent.directory
+        workspaces = parent.workspaces
+        workspace = parent.workspace
         sessionId = forkAt == nil ? nil : parent.sessionId
         model = parent.model
         mode = parent.mode
@@ -119,11 +143,13 @@ final class Session: ObservableObject, Identifiable {
         SessionSnapshot(id: id, directory: directory, sessionId: sessionId, model: model, mode: mode,
                         effort: effort, advising: advising, tokens: tokens, contextTokens: contextTokens, contextWindow: contextWindow,
                         messages: messages, outfit: outfit, draft: draft, pastes: pastes, inputHistory: inputHistory,
-                        forkedFrom: forkedFrom, forkAt: forkAt, pullRequests: pullRequests.map(\.url))
+                        forkedFrom: forkedFrom, forkAt: forkAt, pullRequests: pullRequests.map(\.url),
+                        workspaces: workspaces, workspace: workspace)
     }
 
-    var title: String { (directory as NSString).lastPathComponent }
-    var repoPath: String { git?.repoPath ?? directory }
+    var title: String { (workspace as NSString).lastPathComponent }
+    var activeWorkspace: Workspace { workspaces.first { $0.path == workspace } ?? Workspace(path: workspace, repo: workspace) }
+    var repoPath: String { activeWorkspace.repo }
     var logIdentity: String { "\(id)-\(resets)" }
     var isTalking: Bool { typingId != nil }
 
@@ -132,10 +158,64 @@ final class Session: ObservableObject, Identifiable {
     }
 
     func refreshGit() {
+        let paths = workspaces.map(\.path)
+        Task.detached {
+            let states = paths.reduce(into: [String: GitInfo]()) { $0[$1] = Git.info(at: $1) }
+            await MainActor.run {
+                self.gitStates = states
+                self.workspaces = self.workspaces.map { entry in
+                    var entry = entry
+                    entry.repo = states[entry.path]?.repoPath ?? entry.repo
+                    return entry
+                }
+            }
+        }
+    }
+
+    /// The repo's name, or the folder's when the session works in more than one checkout of the repo.
+    func label(of entry: Workspace) -> String {
+        workspaces.filter { $0.repo == entry.repo }.count > 1 ? entry.name : (entry.repo as NSString).lastPathComponent
+    }
+
+    func works(in path: String) -> Bool {
+        workspaces.contains { $0.path == path }
+    }
+
+    func cycleWorkspace() {
+        guard let index = workspaces.firstIndex(where: { $0.path == workspace }) else { return }
+        selectWorkspace(workspaces[(index + 1) % workspaces.count].path)
+    }
+
+    func selectWorkspace(_ path: String) {
+        guard path != workspace else { return }
+        workspace = path
+        openedCommit = nil
+        refreshGit()
+        if showingDiff { loadDiff() }
+        if showingLog { loadLog() }
+    }
+
+    /// Adds the checkouts holding `paths` that changed since `start` and moves to the last one, so repos Claude only read
+    /// don't count. The launch directory's checkout counts as the launch directory.
+    private func noteWork(at paths: [String], since start: Date) {
+        guard paths.contains(where: { !$0.hasPrefix(workspace + "/") }) else { return }
         let directory = directory
         Task.detached {
-            let info = Git.info(at: directory)
-            await MainActor.run { self.git = info }
+            let launch = Git.workspace(containing: directory)
+            let folders = paths.filter { FileManager.default.fileExists(atPath: $0) }.map(Git.folder(of:))
+            let roots = Set(folders).compactMap(Git.workspace(containing:))
+            let found = folders.compactMap { folder in roots.filter { folder == $0.path || folder.hasPrefix($0.path + "/") }.max { $0.path.count < $1.path.count } }
+                .reduce(into: [Workspace]()) { if !$0.contains($1) { $0.append($1) } }
+                .filter { Git.changed(in: $0.path, since: start) }
+            await MainActor.run {
+                guard self.directory == directory else { return }
+                if let launch { self.workspaces[0].repo = launch.repo }
+                for entered in found {
+                    let path = entered.path == launch?.path ? directory : entered.path
+                    if !self.workspaces.contains(where: { $0.path == path }) { self.workspaces.append(entered) }
+                    self.selectWorkspace(path)
+                }
+            }
         }
     }
 
@@ -144,10 +224,14 @@ final class Session: ObservableObject, Identifiable {
         openedCommit = nil
         guard showingLog else { return }
         showingDiff = false
-        let directory = directory
+        loadLog()
+    }
+
+    private func loadLog() {
+        let path = workspace
         Task.detached {
-            let commits = Git.log(at: directory)
-            await MainActor.run { self.commits = commits }
+            let commits = Git.log(at: path)
+            await MainActor.run { if self.workspace == path { self.commits = commits } }
         }
     }
 
@@ -161,9 +245,9 @@ final class Session: ObservableObject, Identifiable {
     func open(_ commit: Commit) {
         openedCommit = commit
         diff = []
-        let directory = directory
+        let path = workspace
         Task.detached {
-            let diff = await Git.diff(of: commit, at: directory)
+            let diff = await Git.diff(of: commit, at: path)
             await MainActor.run { if self.openedCommit == commit { self.diff = diff } }
         }
     }
@@ -203,10 +287,10 @@ final class Session: ObservableObject, Identifiable {
     }
 
     private func loadDiff() {
-        let directory = directory, base = diffBase
+        let path = workspace, base = diffBase
         Task.detached {
-            let diff = await Git.diff(base, at: directory)
-            await MainActor.run { if self.diffBase == base { self.diff = diff } }
+            let diff = await Git.diff(base, at: path)
+            await MainActor.run { if self.diffBase == base && self.workspace == path { self.diff = diff } }
         }
     }
 
@@ -243,6 +327,8 @@ final class Session: ObservableObject, Identifiable {
     /// Each Claude session gets one outfit for its whole lifetime.
     private func startNewSession() {
         sessionId = nil
+        shellDirectory = nil
+        pendingWork = [:]
         forkAt = nil
         contextTokens = nil
         pullRequests = []
@@ -684,6 +770,7 @@ final class Session: ObservableObject, Identifiable {
         guard let data = line.data(using: .utf8),
               let event = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
         track(pullRequestDetector.urls(in: event))
+        trackWork(in: event)
 
         switch event["type"] as? String {
         case "system" where event["subtype"] as? String == "init":
@@ -801,6 +888,68 @@ final class Session: ObservableObject, Identifiable {
         return found.isEmpty ? nil : found
     }
 
+    /// Where a tool call may work: the file an edit writes, or every word of a command that names a path, since commands
+    /// like `cd ~/dev && for d in a b; do echo x >> $d/README.md; done` name repos without `cd`ing into them.
+    /// `noteWork` keeps only the repos that changed while the tool ran.
+    private func trackWork(in event: [String: Any]) {
+        let blocks = (event["message"] as? [String: Any])?["content"] as? [[String: Any]] ?? []
+        switch event["type"] as? String {
+        case "assistant":
+            for block in blocks where block["type"] as? String == "tool_use" {
+                guard let id = block["id"] as? String, let input = block["input"] as? [String: Any] else { continue }
+                let paths = workedPaths(tool: block["name"] as? String, input: input)
+                if !paths.isEmpty { pendingWork[id] = (paths, Date()) }
+            }
+        case "user":
+            for case let id as String in blocks.map({ $0["tool_use_id"] }) {
+                if let work = pendingWork.removeValue(forKey: id) { noteWork(at: work.paths, since: work.started) }
+            }
+        default:
+            break
+        }
+    }
+
+    private func workedPaths(tool: String?, input: [String: Any]) -> [String] {
+        switch tool {
+        case "Edit", "MultiEdit", "Write": return [input["file_path"] as? String].compactMap { $0 }
+        case "NotebookEdit": return [input["notebook_path"] as? String].compactMap { $0 }
+        case "Bash":
+            let words = Self.words(of: input["command"] as? String ?? "")
+            var cwd = shellDirectory ?? directory
+            var paths: [String] = []
+            for (index, word) in words.enumerated() where !word.hasPrefix("-") && !word.contains(where: "$`*?".contains) {
+                let expanded = (word as NSString).expandingTildeInPath
+                let path = ((expanded.hasPrefix("/") ? expanded : (cwd as NSString).appendingPathComponent(expanded)) as NSString).standardizingPath
+                if index > 0 && words[index - 1] == "cd" { cwd = path }
+                paths.append(path)
+            }
+            // Claude's shell keeps its directory between commands.
+            shellDirectory = cwd
+            return paths
+        default:
+            return []
+        }
+    }
+
+    /// Splits a command into words the way the shell would, roughly: quotes group, and operators and `=` separate.
+    nonisolated static func words(of command: String) -> [String] {
+        var words: [String] = [], word = "", quote: Character?
+        for character in command {
+            if let open = quote {
+                if character == open { quote = nil } else { word.append(character) }
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character.isWhitespace || ";&|()<>=".contains(character) {
+                if !word.isEmpty { words.append(word) }
+                word = ""
+            } else {
+                word.append(character)
+            }
+        }
+        if !word.isEmpty { words.append(word) }
+        return words
+    }
+
     nonisolated static func detail(of input: [String: Any]) -> String {
         ["command", "file_path", "pattern", "url", "query", "description", "skill", "prompt"]
             .lazy.compactMap { input[$0] as? String }.first ?? ""
@@ -894,8 +1043,8 @@ final class AppStore: ObservableObject {
             self?.sessionSubscriptions = Publishers.MergeMany(sessions.map(\.objectWillChange))
                 .debounce(for: .seconds(1), scheduler: RunLoop.main)
                 .sink { [weak self] in self?.save() }
-            self?.layoutSubscription = Publishers.Merge(Publishers.MergeMany(sessions.map { $0.$git.map { _ in } }),
-                             Publishers.MergeMany(sessions.map { $0.$directory.map { _ in } }))
+            self?.layoutSubscription = Publishers.Merge(Publishers.MergeMany(sessions.map { $0.$gitStates.map { _ in } }),
+                             Publishers.MergeMany(sessions.map { $0.$workspace.map { _ in } }))
                 .sink { [weak self] in self?.objectWillChange.send() }
             guard let self else { return }
             let changes = sessions.flatMap { [$0.$hasUnread.map { _ in }.eraseToAnyPublisher(), $0.$unseenAbove.map { _ in }.eraseToAnyPublisher()] }
@@ -924,7 +1073,7 @@ final class AppStore: ObservableObject {
 
     func newTab(directory: String? = nil) {
         let base = selected
-        let session = Session(directory: directory ?? base?.directory ?? NSHomeDirectory(),
+        let session = Session(directory: directory ?? base?.workspace ?? NSHomeDirectory(),
                               model: base?.model ?? .sonnet, mode: base?.mode ?? .acceptEdits)
         sessions.append(session)
         selectedId = session.id
@@ -951,9 +1100,15 @@ final class AppStore: ObservableObject {
 
     /// Closing the last tab of a worktree under `.claude/worktrees` also deletes it, after confirmation if work would be lost.
     func close(_ session: Session) {
-        guard let worktree = deletableWorktree(of: session) else { return closeTab(session) }
+        let launch = session.workspaces[0]
+        let managedRoot = (launch.repo as NSString).appendingPathComponent(".claude/worktrees/")
+        let shared = sessions.contains { $0.id != session.id && $0.directory == session.directory }
+        guard !shared, session.directory.hasPrefix(managedRoot) else { return closeTab(session) }
         Task {
-            let (git, unpushed) = await Task.detached { (Git.info(at: worktree.path), Git.unpushedCommits(at: worktree.path)) }.value
+            let (worktree, git, unpushed) = await Task.detached {
+                (Git.worktrees(at: launch.path).first { $0.path == launch.path }, Git.info(at: launch.path), Git.unpushedCommits(at: launch.path))
+            }.value
+            guard let worktree else { return closeTab(session) }
             let close = WorktreeClose(session: session, worktree: worktree, git: git, unpushed: unpushed)
             if let git, git.changedFiles > 0 || unpushed > 0 {
                 pendingClose = close
@@ -966,7 +1121,7 @@ final class AppStore: ObservableObject {
     func closeAndDelete(_ close: WorktreeClose) {
         closeTab(close.session)
         do {
-            try Git.removeWorktree(close.worktree, from: close.session.repoPath)
+            try Git.removeWorktree(close.worktree, from: close.session.workspaces[0].repo)
             pendingClose = nil
         } catch {
             var failed = close
@@ -976,19 +1131,11 @@ final class AppStore: ObservableObject {
         sessions.forEach { $0.refreshGit() }
     }
 
-    private func deletableWorktree(of session: Session) -> Worktree? {
-        let managedRoot = (session.repoPath as NSString).appendingPathComponent(".claude/worktrees/")
-        let shared = sessions.contains { $0.id != session.id && $0.directory == session.directory }
-        guard !shared, session.directory.hasPrefix(managedRoot) else { return nil }
-        return session.git?.worktrees.first { $0.path == session.directory }
-    }
-
     private func closeTab(_ session: Session) {
         session.stop()
         session.closeShell()
-        if !sessions.contains(where: { $0.id != session.id && $0.directory == session.directory }) {
-            runs.filter { $0.directory == session.directory }.forEach(dismiss)
-        }
+        let others = sessions.filter { $0.id != session.id }.flatMap(\.workspaces).map(\.path)
+        runs.filter { run in session.works(in: run.directory) && !others.contains(run.directory) }.forEach(dismiss)
         guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
         sessions.remove(at: index)
         if sessions.isEmpty { sessions = [Session(directory: NSHomeDirectory())] }

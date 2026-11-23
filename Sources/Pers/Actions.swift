@@ -301,7 +301,7 @@ struct ActionPanel: View {
                             if editing?.id == action.id {
                                 editor(for: action)
                             } else {
-                                ActionRow(action: action, directory: session.directory,
+                                ActionRow(action: action, directory: session.workspace,
                                           selected: focused && selected == index,
                                           expanded: expanded == action.id,
                                           choices: choosing == action.id ? action.choiceList : [],
@@ -335,8 +335,13 @@ struct ActionPanel: View {
 
     private var scopeTabs: some View {
         HStack(spacing: 10) {
-            scopeTab((session.repoPath as NSString).lastPathComponent.uppercased(), active: !showingGlobal) { showingGlobal = false }
-            Text("│").foregroundStyle(Theme.dim)
+            ForEach(session.workspaces) { workspace in
+                scopeTab(session.label(of: workspace).uppercased(), active: !showingGlobal && workspace.path == session.workspace) {
+                    showingGlobal = false
+                    session.selectWorkspace(workspace.path)
+                }
+                Text("│").foregroundStyle(Theme.dim)
+            }
             scopeTab("GLOBAL", active: showingGlobal) { showingGlobal = true }
         }
         .font(Theme.ui(12, weight: .bold))
@@ -368,7 +373,8 @@ struct ActionPanel: View {
         if editing != nil { return [("⏎", "save"), ("⇥", "next field"), ("⌥⏎", "new line"), ("ESC", "cancel")] }
         let select = (KeyAction.label(.down, .up), "select")
         if choosing != nil { return [select, (KeyAction.select.label, "run"), (KeyAction.back.label, "cancel")] }
-        return [select, (KeyAction.switchScope.label, showingGlobal ? "local" : "global"), (KeyAction.select.label, "run"),
+        let scope = showingGlobal ? "local" : session.workspace == session.workspaces.last?.path ? "global" : "next repo"
+        return [select, (KeyAction.switchScope.label, scope), (KeyAction.select.label, "run"),
                 (KeyAction.stopAction.label, "stop"), (KeyAction.toggleOutput.label, "output"), (KeyAction.editAction.label, "edit"),
                 (KeyAction.newAction.label, "new"), (KeyAction.deleteAction.label, deleteArmed ? "again to delete" : "delete"),
                 (KeyAction.label(.back, .actions), "close")]
@@ -382,11 +388,11 @@ struct ActionPanel: View {
     private func handle(_ press: KeyPress) -> KeyPress.Result {
         guard editing == nil else { return .ignored }
         let action = selectedAction
-        let run = action.flatMap { store.run(of: $0, in: session.directory) }
+        let run = action.flatMap { store.run(of: $0, in: session.workspace) }
         if let action, choosing == action.id { return handleChoice(press, of: action) }
         switch press.action(in: .navigation, .actions) {
         case .back: store.showingActions = false
-        case .switchScope where press.phase == .down: showingGlobal.toggle()
+        case .switchScope where press.phase == .down: switchScope()
         case .down: selected = min(selected + 1, actions.count)
         case .up: selected = max(selected - 1, 0)
         case .select where press.phase == .down: if let action { self.run(action) } else { startNew() }
@@ -423,8 +429,22 @@ struct ActionPanel: View {
             return
         }
         choosing = nil
-        store.run(action, in: session.directory, choice: choice)
+        store.run(action, in: session.workspace, choice: choice)
         expanded = action.id
+    }
+
+    /// Steps through the session's workspaces, then the global actions.
+    private func switchScope() {
+        let paths = session.workspaces.map(\.path)
+        let index = paths.firstIndex(of: session.workspace) ?? 0
+        if showingGlobal {
+            showingGlobal = false
+            session.selectWorkspace(paths[0])
+        } else if index + 1 < paths.count {
+            session.selectWorkspace(paths[index + 1])
+        } else {
+            showingGlobal = true
+        }
     }
 
     private func toggleOutput(of action: Action) {

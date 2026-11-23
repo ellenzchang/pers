@@ -25,7 +25,7 @@ Always write all seven fields, using `""` for empty ones, so entries match the o
 
 ## Steps
 
-1. Find the repo path: `git worktree list --porcelain | head -1`, taking the first `worktree` entry. Do not use `--show-toplevel`, which returns the worktree you happen to be in.
+1. Find the repo path of the repo the request is for, which may not be the folder you were started in if you have been working in another repo: `git -C <a folder in that repo> worktree list --porcelain | head -1`, taking the first `worktree` entry. Do not use `--show-toplevel`, which returns the worktree you happen to be in. If it's unclear which repo the user means, ask.
 2. Work out the request from the repo's code rather than guessing: controller/route definitions for path, method, parameters and payload shape; `application*.yml`/`.properties`, `.env`, Dockerfiles or k8s manifests for the port and service hostnames; tests or README for realistic example values. If the user gave a curl command or URL, translate that instead. If what they want is unclear, ask.
 3. Read `requests.json` and look at the existing entries for this `repo` to match their host, brand and naming style.
 4. Name it in the style the user already uses: `<brand> <env> <path> <distinguishing params>`, lowercase except for literal values, without the method, e.g. `finn prod /suggest FRONTPAGE oslo` or `local /search BAP_COMMON iphone`. Leave out parts that don't apply (a repo with one brand needs no brand). The name must tell it apart from the other requests in the folder.
